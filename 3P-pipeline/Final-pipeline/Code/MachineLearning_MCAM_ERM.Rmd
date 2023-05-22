@@ -517,7 +517,7 @@ checkTypos <- function(rawScoring){
 
 Path for base directory:
 ```{r}
-dirPath <- "Z:/Suzannah_Thesis_Paper/ClonalCRISPR/GitHub/"
+dirPath <- "/Your/Directory/Name/"
 ```
 
 Annotation file, where user defines conditions and replicates for each image.
