@@ -1,1 +1,4 @@
-
+# Description of code files
+MaskAndSegmentImages.m provides the MATLAB code for generating image masks and segmentation label matrices.
+ExtractFeatures.m provides the MATLAB code for uploading images, masks, and segmentation, and extracting the feature data for each cell.
+MachineLearning_MCAM-ERM.Rmd is the R markdown file for compiling feature data and performing machine learning to classify cells with polarized protein. The "Final-pipeline/Input" folder contains the data necessary to run this code. The "Final-pipeline/Output" folder contains the supplemental data which was saved in the last two chunks of the markdown file.
