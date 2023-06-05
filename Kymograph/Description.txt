@@ -1,0 +1,2 @@
+KymographScript.m is the code to run generation of kymographs.
+blobMask.m is a function to mask the cells in the movie data.
