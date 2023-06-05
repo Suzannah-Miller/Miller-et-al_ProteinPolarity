@@ -1,0 +1,993 @@
+---
+title: "BioID Analysis"
+output: html_notebook
+---
+
+This notebook contains the analyses/figures of the BioID data from the paper. 
+
+Here, the MaxQuant output was loaded, and feature data from the evidence file was rolled up into protein quantitation using the groupings in the protein groups file. A custom script was used to roll up the data, such that all peptides were summed per protein (i.e., shared peptides were used more than once).
+
+Technical replicates were summed and then formatted for SAINT analysis of spectral counts and Perseus analysis of median-normalized intensities. The output from SAINT and Perseus were then loaded into this notebook and plotted.
+
+```{r}
+R.Version() # Version 4.3.0
+RStudio.Version() # Version 1.4.1717
+
+library(tidyverse)
+library(readxl)
+library(gridExtra)
+library(ggbeeswarm)
+```
+
+Path to directory:
+```{r}
+dirPath <- "/Users/suzannah/Library/CloudStorage/OneDrive-UCB-O365/AhnLabResearch/Experiments/20211101BioID-triplicate/"
+```
+
+Input data:
+```{r}
+# MaxQuant output
+evidence <- read.delim(paste(dirPath, "CCE20220123_Suzannah_Miller_MCAM_BioID/evidence.txt", sep = ""))
+
+proteinGroups <- read.delim(paste(dirPath, "CCE20220123_Suzannah_Miller_MCAM_BioID/proteinGroups.txt", sep = "")) %>%
+  arrange(Majority.protein.IDs)
+
+# User-made annotation file which facilitates formatting for SAINT
+annotation <- read_excel(paste(dirPath, "MassSpecAnalysis/20211101BioID_Annotation.xlsx", sep = "")) %>%
+  mutate(reprintBait1 = ifelse(T.C.label.v1 == "T", Bait.v1, "CONTROL")) %>%
+  mutate(reprintBait2 = ifelse(T.C.label.v2 == "T", Bait.v2, "CONTROL")) %>%
+  arrange(Sample.name)
+head(annotation)
+```
+
+Functions for rolling features into protein-level data, where all peptides are summed for each proteinGroup (including shared peptides) or razor peptides are summed.
+```{r}
+rollupAll <- function(proteinGroupsdf, evidencedf){
+  for(val1 in 0:nrow(proteinGroupsdf)) {
+    tempRow <- filter(proteinGroupsdf, id == val1)
+    evidIdx <- str_split(tempRow$Evidence.IDs, ";", simplify = T)
+    evidForProteinGroup <- filter(evidencedf, id %in% evidIdx) 
+    evidForProteinGroup <- mutate(evidForProteinGroup, 
+           MS.MS.count = ifelse(Type == "MULTI-SECPEP", 0, MS.MS.count))
+    tempSpcAll <- evidForProteinGroup %>%
+      group_by(Raw.file, .drop = F) %>%
+      summarize(spc = sum(MS.MS.count, na.rm = T), intensity = sum(Intensity, na.rm = T)) %>%
+      mutate(Majority.protein.IDs = tempRow$Majority.protein.IDs, 
+             Gene.names = tempRow$Gene.names,
+             Sequence.length = tempRow$Sequence.length,
+             Protein.names = tempRow$Protein.names, 
+             Only.identified.by.site = tempRow$Only.identified.by.site, 
+             Reverse = tempRow$Reverse, 
+             Potential.contaminant = tempRow$Potential.contaminant)
+    if(val1 == 0){
+      spcProteinsAll = tempSpcAll
+    } else {
+      spcProteinsAll <- rbind(spcProteinsAll, tempSpcAll)
+    }
+  }
+  return(spcProteinsAll)
+}
+
+rollupRazor <- function(proteinGroupsdf, evidencedf){
+  for(val1 in 0:nrow(proteinGroupsdf)) {
+    tempRow <- filter(proteinGroupsdf, id == val1)
+    evidIdx <- str_split(tempRow$Evidence.IDs, ";", simplify = T)
+    evidForProteinGroup <- filter(evidencedf, id %in% evidIdx) 
+    evidForProteinGroup <- mutate(evidForProteinGroup, 
+           MS.MS.count = ifelse(Type == "MULTI-SECPEP", 0, MS.MS.count))
+    majProtId <- str_split(tempRow$Majority.protein.IDs, ";", simplify = T)
+    razorIdx <- which(evidForProteinGroup$Leading.razor.protein == majProtId[1])
+    tempSpcRazor <- evidForProteinGroup[razorIdx,] %>%
+      group_by(Raw.file, .drop = F) %>%
+      summarize(spc = sum(MS.MS.count, na.rm = T), intensity = sum(Intensity, na.rm = T)) %>%
+      mutate(Majority.protein.IDs = tempRow$Majority.protein.IDs, 
+             Gene.names = tempRow$Gene.names,
+             Sequence.length = tempRow$Sequence.length,
+             Protein.names = tempRow$Protein.names, 
+             Only.identified.by.site = tempRow$Only.identified.by.site, 
+             Reverse = tempRow$Reverse,
+             Potential.contaminant = tempRow$Potential.contaminant)
+    if(val1 == 0){
+      spcProteinsRazor = tempSpcRazor
+    } else {
+      spcProteinsRazor <- rbind(spcProteinsRazor, tempSpcRazor)
+    }
+  }
+  return(spcProteinsRazor)
+}
+```
+
+Functions to format for Perseus or SAINT analysis:
+```{r}
+# Format for MaxQuant
+formatForMaxQuant <- function(data, measurement){
+  wide <- data %>%
+    rename(metric = measurement) %>%
+    select(BiologicalReplicate, Majority.protein.IDs, Gene.names, metric) %>%
+    spread(key = BiologicalReplicate, value = metric, fill = 0)
+}
+
+# Format for SAINT
+formatForReprint <- function(proteinData, annotationdf){
+  reprintInfoCols <- proteinData %>%
+    select(Majority.protein.IDs, Gene.names, Sequence.length, Protein.names) %>%
+    rename(PROTID = Majority.protein.IDs,
+           GENEID = Gene.names,
+           PROTLEN = Sequence.length,
+           DEFLINE = Protein.names) %>%
+    mutate(PROTID = str_extract(PROTID, regex('[^;]*')),
+           GENEID = str_extract(GENEID, regex('[^;]*')))
+  
+  dataLong <- proteinData %>%
+    select(Majority.protein.IDs, all_of(annotationdf$BiologicalReplicate)) %>%
+    gather(key = BiologicalReplicate, value = "Value", annotationdf$BiologicalReplicate)  %>%
+    select(Majority.protein.IDs, BiologicalReplicate, Value) %>%
+    rename(PROTID = Majority.protein.IDs) %>%
+    mutate(PROTID = str_extract(PROTID, regex('[^;]*')))
+
+  # Create matrix format for SAINT
+  dataWide = dataLong %>%
+    spread(key = BiologicalReplicate, value = Value, fill = NA, drop = FALSE)
+  reprintWide = merge(reprintInfoCols, dataWide, by = "PROTID")
+  
+  # Check for unique PROTIDs (should be TRUE)
+  print("Unique PROTIDs?")
+  print(length(reprintWide$PROTID) == length(unique(reprintWide$PROTID)))
+  print("nrow(input) == nrow(reprintMatrix)?")
+  print(nrow(reprintWide) == nrow(proteinData))
+
+  # Check that reformatting kept original values
+  proteinGroupsTemp <- proteinData %>%
+    select(Majority.protein.IDs, all_of(annotationdf$BiologicalReplicate)) %>%
+    rename(PROTID = Majority.protein.IDs) %>%
+    mutate(PROTID = str_extract(PROTID, regex('[^;]*'))) %>%
+    arrange(PROTID)
+  for (val in 1:nrow(annotationdf)){
+    print(paste('Values Preserved for', annotationdf$BiologicalReplicate[val]))
+    print(all(select(proteinGroupsTemp, all_of(annotationdf$BiologicalReplicate[val])) == select(reprintWide, all_of(annotationdf$BiologicalReplicate[val]))))
+  }
+  remove(proteinGroupsTemp)
+  return(reprintWide)
+}
+
+header <- function(reprintWide, annotationdf, reprintBaitName, option){
+  annotationTemp <- select(annotationdf, BiologicalReplicate, reprintBaitName) %>%
+    rename(reprintBait = reprintBaitName)
+  headersTemp <- data.frame(firstRow = colnames(reprintWide)) %>%
+    mutate(secondRow = firstRow)
+  headersTemp2 <- headersTemp
+  for (val in 1:nrow(headersTemp)){
+    if (headersTemp$secondRow[val] %in% annotationTemp$BiologicalReplicate){
+    idx = which(annotationTemp$BiologicalReplicate == headersTemp$secondRow[val])
+    headersTemp2$secondRow[val] <- annotationTemp$reprintBait[idx]
+    }
+  }
+  headersTemp2 <- mutate(headersTemp2, firstRow = ifelse(firstRow %in% annotationTemp$BiologicalReplicate, paste(firstRow, option, sep = "_"), firstRow))
+  headers <- as_tibble(t(headersTemp2))
+}
+```
+
+Roll up all peptides per protein (using shared peptides more than once).
+```{r}
+evidence2 <- evidence %>%
+  filter(!str_detect(Raw.file, "s4"), !str_detect(Raw.file, "s9")) # Remove samples in the MaxQuant search which were not included in this study.
+
+proteinsAll2 <- rollupAll(proteinGroups, evidence2)
+```
+
+Roll up unfiltered razor peptides and compare to proteinGroups to check roll-up function:
+```{r}
+proteinsRazorNorm <- rollupRazor(proteinGroups, evidence)
+proteinsRazorSpcWide <- merge(proteinsRazorNorm, select(annotation, ProteinGroups, Raw.file), by = "Raw.file") %>%
+  select(-Raw.file, -intensity) %>%
+  spread(key = "ProteinGroups", value = "spc", fill = 0) %>%
+  arrange(Majority.protein.IDs)
+
+# Spectral counts are identical
+pg <- proteinGroups %>% dplyr::select(Majority.protein.IDs, contains("MS.MS.count."))
+identical(pg$Majority.protein.IDs, proteinsRazorSpcWide$Majority.protein.IDs)
+columnNames <- colnames(proteinsRazorSpcWide)
+columnNamesPg <- colnames(pg)
+for(val in 1:26){
+  x <- proteinsRazorSpcWide[which(str_detect(columnNames, annotation$ProteinGroups[val]))]
+  y <- pg[which(str_detect(columnNamesPg, annotation$ProteinGroups[val]))] %>%
+    dplyr::mutate_all(as.numeric)
+  if(identical(x[,],y[,]) == F){
+    print(paste(annotation$ProteinGroups[val], "is not identical"))
+  }
+}
+
+# Intensities are not identical, but it appears like rounding differences
+proteinsRazorIntensityWide <- merge(proteinsRazorNorm, select(annotation, ProteinGroups, Raw.file), by = "Raw.file") %>%
+  select(-Raw.file, -spc) %>%
+  spread(key = "ProteinGroups", value = "intensity", fill = 0) %>%
+  arrange(Majority.protein.IDs)
+pg <- proteinGroups %>% dplyr::select(Majority.protein.IDs, contains("Intensity."), -contains("LFQ"))
+identical(pg$Majority.protein.IDs, proteinsRazorIntensityWide$Majority.protein.IDs)
+columnNames <- colnames(proteinsRazorIntensityWide)
+columnNamesPg <- colnames(pg)
+for(val in 1:26){
+  x <- proteinsRazorIntensityWide[which(str_detect(columnNames, annotation$ProteinGroups[val]))]
+  y <- pg[which(str_detect(columnNamesPg, annotation$ProteinGroups[val]))] %>%
+    dplyr::mutate_all(as.numeric)
+  print(plot(x[,],y[,]))
+}
+```
+
+Combine (sum) technical replicates to give values for each biological replicate, using the sum of all peptides per protein group (e.g., double-dipping), and divide by the number of iBAQ peptides:
+```{r}
+proteinIntensitiesBio <- proteinsAll2 %>% 
+    filter(intensity != 0)%>%
+    merge(proteinGroups %>% select(Majority.protein.IDs, Protein.IDs, iBAQ.peptides), by = "Majority.protein.IDs") %>%
+    merge(annotation %>% select(BiologicalReplicate, Condition, Sample.name, Raw.file), by = "Raw.file") %>%
+    filter(Potential.contaminant != "+", Reverse != "+") %>% 
+    mutate(iBAQ = intensity/iBAQ.peptides) %>%
+    group_by(Condition, BiologicalReplicate, Protein.IDs, Majority.protein.IDs, Gene.names) %>%
+    summarize(intensity = sum(intensity, na.rm = T),
+              iBAQ = sum(iBAQ, na.rm = T),
+              spc = sum(spc, na.rm = T)) %>%
+    ungroup()
+
+sum(is.na(proteinIntensitiesBio$iBAQ)) # No missing values
+```
+
+Median normalize intensities
+```{r}
+# Global median (median of medians)
+medianIntensities <- proteinIntensitiesBio %>% group_by(BiologicalReplicate) %>% summarize(median = median(iBAQ), sum = sum(iBAQ)) %>% ungroup()
+ggplot(medianIntensities, aes(x = median, y = sum)) + geom_point()
+globalMedian <- median(medianIntensities$median)
+
+# Normalize the data
+proteinIntensitiesBioNorm <-proteinIntensitiesBio %>%
+  group_by(BiologicalReplicate) %>%
+  mutate(iBAQnorm = iBAQ/median(iBAQ)*globalMedian) %>%
+  ungroup()
+
+# Check raw values preserved
+nrow(proteinIntensitiesBio) == nrow(proteinIntensitiesBioNorm)
+identical(proteinIntensitiesBio$Majority.protein.IDs, proteinIntensitiesBioNorm$Majority.protein.IDs)
+identical(proteinIntensitiesBio$intensity, proteinIntensitiesBioNorm$intensity)
+
+# Check medians are identical
+proteinIntensitiesBioNorm %>% group_by(BiologicalReplicate) %>% summarize(median(iBAQnorm)) %>% ungroup()
+
+# Save normalized data
+write_csv(proteinIntensitiesBioNorm, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/Perseus20230512/proteinIntensitiesMedianNormalized_Test.csv", sep = ""))
+```
+
+Violin plots and boxplots of intensities (Supplemental Figure):
+```{r}
+# Fix order of plots
+repLevels <- c("McamBiraA", "McamBiraB", "McamBiraC", "LynBiraA", "LynBiraB", "LynBiraC", "BiraNesB", "BiraNesC", "NoneA", "NoneB", "NoneC", "McamBiraROCKiB", "McamBiraROCKiC")
+
+ggplot(proteinIntensitiesBioNorm %>%
+         mutate(BiologicalReplicate = factor(BiologicalReplicate, levels = repLevels)), 
+       aes(x = BiologicalReplicate, y = log2(iBAQ), color = Condition)) +
+    geom_beeswarm(alpha = 0.2, cex = .3, size = .5) +
+  geom_boxplot(alpha = .6, width = 0.5, size = 1, color = "black") + 
+  ggtitle("Norm Filtered Human Protein Intensities - All Peptides")  +
+  ylab("Log2(iBAQ)") +
+  theme_classic() +
+  scale_y_continuous(breaks = seq(5,30,5)) +
+  theme(text = element_text(size = 13),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        title = element_text(size = 14))
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/ReplicatePlots/ProteinIbaqAllPeptides_BeforeMedianNorm_Boxplot.svg", sep = ""), width = 5, height = 3, units = "in", dpi = 600)
+
+ggplot(proteinIntensitiesBioNorm %>%
+         mutate(BiologicalReplicate = factor(BiologicalReplicate, levels = repLevels)), 
+       aes(x = BiologicalReplicate, y = log2(iBAQnorm), color = Condition)) +
+    geom_beeswarm(alpha = 0.2, cex = .3, size = .5) +
+  geom_boxplot(alpha = .6, width = 0.5, size = 1, color = "black") + 
+  ggtitle("Norm Filtered Human Protein Intensities - All Peptides")  +
+  ylab("Log2(iBAQ)") +
+  theme_classic() +
+  scale_y_continuous(breaks = seq(5,30,5)) +
+  theme(text = element_text(size = 13),
+        axis.text.x = element_text(angle = 90, hjust = 1),
+        title = element_text(size = 14))
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/ReplicatePlots/ProteinIbaqAllPeptides_AfterMedianNorm_Boxplot.svg", sep = ""), width = 5, height = 3, units = "in", dpi = 600)
+```
+
+Plots of average spectral counts or intensities comparing constructs (Supplemental Figure):
+```{r}
+lm_condition <- function(dataSum, condition1, condition2, xEqn, yEqn, measurement, title, axLab1, axLab2){
+  proteinsWide <- dataSum %>%
+    select(Condition, Majority.protein.IDs, all_of(measurement)) %>%
+    rename(intensity = measurement) %>%
+    filter(intensity != 0) %>%
+    mutate(intensity = log2(intensity)) %>%
+    mutate(intensity = ifelse(is.infinite(intensity), NA, intensity)) %>%
+    group_by(Condition, Majority.protein.IDs) %>%
+    summarize(meanIntensity = mean(intensity, na.rm = T)) %>%
+    ungroup() %>%
+    spread(key = Condition, value = meanIntensity, fill = NA) %>%
+        rename(xVar = condition1,
+            yVar = condition2)
+  
+    df <- proteinsWide %>% dplyr::select(Majority.protein.IDs, xVar, yVar)
+
+m <- lm(yVar ~ xVar, df, na.action = na.exclude)
+    eq <- paste('y = ', format(unname(coef(m)[1]), digits = 2), ' + ', format(unname(coef(m)[2]), digits = 2), 'x    R^2 = ', ... = format(summary(m)$r.squared, digits = 3), sep = "")
+
+  p1 = ggplot(df %>% mutate(xVar = ifelse(is.na(xVar), -Inf, xVar),
+                            yVar = ifelse(is.na(yVar), -Inf, yVar)), 
+              aes(x = xVar, y = yVar)) + geom_point(alpha = 0.4, size = 1) +
+     #geom_point(data = df %>% filter(Majority.protein.IDs %in% c("P26038", "E7EQR4;P15311", "P35241;A0A2R8Y5S7;A0A2R8Y7M3")), aes(x = xVar, y = yVar, color = Majority.protein.IDs)) +
+          geom_abline(slope = coef(m)[[2]], intercept = coef(m)[[1]]) +
+          geom_text(x = xEqn, y = yEqn, label = eq, size = 3.5) +
+          theme_classic() +
+          ylab(axLab2) + xlab(axLab1) +
+    ggtitle(title) +
+    theme(text = element_text(size = 14),
+          plot.title = element_text(size = 14))
+  print(p1)
+  # ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/ReplicatePlots/",condition1, "-", condition2, "_Mean_", measurement, "_Revised.png", sep = ""), width = 3, height = 3, units = "in", dpi = 600)
+}
+
+lm_condition(proteinIntensitiesBioNorm, "McamBira", "LynBira", 5, 11, "spc", "SPCs", "MCAM-BirA*-HA", "Lyn11-BirA*-HA")
+lm_condition(proteinIntensitiesBioNorm, "McamBira", "BiraNes", 5, 9.5, "spc", "SPCs", "MCAM-BirA*-HA", "BirA*-HA-NES")
+lm_condition(proteinIntensitiesBioNorm, "McamBira", "LynBira", 25, 36, "intensity", "Mean Intensity", "MCAM-BirA*-HA", "Lyn11-BirA*-HA")
+lm_condition(proteinIntensitiesBioNorm, "McamBira", "BiraNes", 25, 36, "intensity", "Mean Intensity", "MCAM-BirA*-HA", "BirA*-HA-NES")
+
+lm_condition(proteinIntensitiesBioNorm, "McamBira", "LynBira", 14, 26, "iBAQnorm", "Mean Norm iBAQ", "MCAM-BirA*-HA", "Lyn11-BirA*-HA")
+lm_condition(proteinIntensitiesBioNorm, "McamBira", "BiraNes", 14, 26, "iBAQnorm", "Mean Norm iBAQ", "MCAM-BirA*-HA", "BirA*-HA-NES")
+
+lm_condition(proteinIntensitiesBioNorm, "McamBira", "LynBira", 18.5, 29.5, "iBAQ", "Mean iBAQ", "MCAM-BirA*-HA", "Lyn11-BirA*-HA")
+lm_condition(proteinIntensitiesBioNorm, "McamBira", "BiraNes", 18.5, 29.5, "iBAQ", "Mean iBAQ", "MCAM-BirA*-HA", "BirA*-HA-NES")
+```
+
+Format for SAINT
+```{r}
+# Sum biological replicates with PROTID as the first entry in Majority.protein.IDs from protein groups file
+proteinsSpcBioSum <- merge(proteinsAll2, select(annotation, Sample.name, Raw.file, BiologicalReplicate), by = "Raw.file")  %>%
+  filter(Reverse != "+") %>%
+  filter(Only.identified.by.site != "+") %>%
+  group_by(Majority.protein.IDs, Gene.names, Protein.names, Sequence.length, BiologicalReplicate) %>%
+  summarize(spc = sum(spc)) %>%
+  ungroup() %>%
+  spread(key = "BiologicalReplicate", value = "spc", fill = 0) %>%
+  arrange(Majority.protein.IDs)
+
+reprintSpcAll <- formatForReprint(proteinsSpcBioSum, annotation %>% filter(!str_detect(ProteinGroups, "s4"), !str_detect(ProteinGroups, "s9")))
+headerSpcAllControls <- header(reprintSpcAll, annotation %>% filter(!str_detect(ProteinGroups, "s4"), !str_detect(ProteinGroups, "s9")), "reprintBait1", "SPC")
+
+# Get uniprot names for contaminants (by removing "CON__" from Majority.protein.IDs) and change MCAMBIRA to uniprot/HGNC
+proteinsSpcBioSumRenamed <- merge(proteinsAll2, select(annotation, Sample.name, Raw.file, BiologicalReplicate), by = "Raw.file")  %>%
+  filter(Reverse != "+") %>%
+  filter(Only.identified.by.site != "+") %>%
+  mutate(Majority.protein.IDs = str_remove_all(Majority.protein.IDs, "CON__ENSEMBL:")) %>%
+  mutate(Majority.protein.IDs = str_remove_all(Majority.protein.IDs, "CON__")) %>%
+  mutate(Majority.protein.IDs = ifelse(str_detect(Majority.protein.IDs, "P04259") & Gene.names != "KRT6B", "CON_P04259", Majority.protein.IDs)) %>%
+  mutate(Majority.protein.IDs = str_remove_all(Majority.protein.IDs, "REFSEQ:")) %>%
+  mutate(Majority.protein.IDs = ifelse(str_detect(Majority.protein.IDs, "MCAMBirA"), "P43121", Majority.protein.IDs)) %>%
+  group_by(Majority.protein.IDs, Gene.names, Protein.names, Sequence.length, BiologicalReplicate) %>%
+  summarize(spc = sum(spc)) %>%
+  ungroup() %>%
+  spread(key = "BiologicalReplicate", value = "spc", fill = 0) %>%
+  arrange(Majority.protein.IDs)
+
+reprintSpcAllRenamed <- formatForReprint(proteinsSpcBioSumRenamed, annotation %>% filter(!str_detect(ProteinGroups, "s4"), !str_detect(ProteinGroups, "s9")))
+
+# Check differences to make sure renaming worked correctly:
+setdiff(proteinsSpcBioSum, proteinsSpcBioSumRenamed)
+setdiff(reprintSpcAll$PROTID, reprintSpcAllRenamed$PROTID)
+setdiff(reprintSpcAll, reprintSpcAllRenamed)
+
+# Remove nonhuman contaminants
+contaminants <- proteinGroups %>% filter(Potential.contaminant == "+")  %>%
+  mutate(firstID = str_extract(Majority.protein.IDs, regex('[^;]*'))) %>%
+  mutate(Majority.protein.IDs.New = str_remove_all(Majority.protein.IDs, "CON__ENSEMBL:")) %>%
+  mutate(Majority.protein.IDs.New = str_remove_all(Majority.protein.IDs.New, "CON__")) %>%
+  mutate(Majority.protein.IDs.New = ifelse(str_detect(Majority.protein.IDs.New, "P04259") & Gene.names != "KRT6B", "CON_P04259", Majority.protein.IDs.New)) %>%
+  mutate(Majority.protein.IDs.New = str_remove_all(Majority.protein.IDs.New, "REFSEQ:")) %>%
+  mutate(Majority.protein.IDs.New = ifelse(str_detect(Majority.protein.IDs.New, "MCAMBirA"), "P43121", Majority.protein.IDs.New)) %>%
+  mutate(firstIDnew = str_extract(Majority.protein.IDs.New, regex('[^;]*')))
+
+proteinsSpcBioSumRenamedHumanCon <- merge(proteinsAll2, select(annotation, Sample.name, Raw.file, BiologicalReplicate), by = "Raw.file")  %>%
+  filter(Reverse != "+") %>%
+  filter(Only.identified.by.site != "+") %>%
+  filter(!Majority.protein.IDs %in% contaminants$Majority.protein.IDs[!str_detect(contaminants$Fasta.headers, "HUMAN")]) %>%
+  mutate(Majority.protein.IDs = str_remove_all(Majority.protein.IDs, "CON__ENSEMBL:")) %>%
+  mutate(Majority.protein.IDs = str_remove_all(Majority.protein.IDs, "CON__")) %>%
+  mutate(Majority.protein.IDs = ifelse(str_detect(Majority.protein.IDs, "P04259") & Gene.names != "KRT6B", "CON_P04259", Majority.protein.IDs)) %>%
+  mutate(Majority.protein.IDs = str_remove_all(Majority.protein.IDs, "REFSEQ:")) %>%
+  mutate(Majority.protein.IDs = ifelse(str_detect(Majority.protein.IDs, "MCAMBirA"), "P43121", Majority.protein.IDs)) %>%
+  group_by(Majority.protein.IDs, Gene.names, Protein.names, Sequence.length, BiologicalReplicate) %>%
+  summarize(spc = sum(spc)) %>%
+  ungroup() %>%
+  spread(key = "BiologicalReplicate", value = "spc", fill = 0) %>%
+  arrange(Majority.protein.IDs)
+
+reprintSpcAllRenamedHumanCon <- formatForReprint(proteinsSpcBioSumRenamedHumanCon, annotation %>% filter(!str_detect(ProteinGroups, "s4"), !str_detect(ProteinGroups, "s9")))
+
+# Check differences to make sure renaming and removing nonhuman contaminants worked:
+setdiff(proteinsSpcBioSum,proteinsSpcBioSumRenamedHumanCon) # 68
+setdiff(proteinsSpcBioSumRenamed,proteinsSpcBioSumRenamedHumanCon) # 32
+nrow(proteinGroups %>% filter(Potential.contaminant == "+", !str_detect(Fasta.headers, "HUMAN"))) # 32 nonhuman contaminants
+nrow(proteinsSpcBioSum) - nrow(proteinsSpcBioSumRenamedHumanCon) # 32 rows removed
+
+setdiff(reprintSpcAll$PROTID, reprintSpcAllRenamedHumanCon$PROTID) # 55
+setdiff(reprintSpcAllRenamed$PROTID, reprintSpcAllRenamedHumanCon$PROTID) # 32
+setdiff(reprintSpcAll, reprintSpcAllRenamedHumanCon)
+sum(str_detect(reprintSpcAllRenamedHumanCon$PROTID, ";"))
+
+contaminants %>% filter(!Majority.protein.IDs %in% contaminants$Majority.protein.IDs[str_detect(contaminants$Fasta.headers, "HUMAN")])
+contaminants %>% filter(Majority.protein.IDs %in% contaminants$Majority.protein.IDs[str_detect(contaminants$Fasta.headers, "HUMAN")])
+filter(contaminants, Majority.protein.IDs.New %in% proteinsSpcBioSumRenamedHumanCon$Majority.protein.IDs)  # 1 protein only identified by site was removed in addition to nonhuman contaminants
+siteOnly <- filter(contaminants, Only.identified.by.site == "+")
+filter(contaminants, !Majority.protein.IDs.New %in% proteinsSpcBioSumRenamedHumanCon$Majority.protein.IDs)  # 33 removed
+nrow(reprintSpcAll) - nrow(reprintSpcAllRenamedHumanCon) # 32 because only identified by site was removed from both
+filter(reprintSpcAll, PROTID == siteOnly$firstID)
+filter(reprintSpcAllRenamedHumanCon, PROTID == siteOnly$firstID)
+proteinsSpcBioSum %>% filter(Majority.protein.IDs == siteOnly$Majority.protein.IDs)
+
+# Save file to upload to https://reprint-apms.org/
+write.table(headerSpcAllControls, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/Reprint20230505/Input/20220512_ReprintMatrixSpcAllPeptides_AllControls_RenamedPrey_HumanCon_Test.txt",sep = ""), append = FALSE, quote = FALSE, sep = "\t", col.names = FALSE, row.names = FALSE)
+write.table(reprintSpcAllRenamedHumanCon, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/Reprint20230505/Input/20220512_ReprintMatrixSpcAllPeptides_AllControls_RenamedPrey_HumanCon_Test.txt",sep = ""), append = TRUE, quote = FALSE, sep = "\t", col.names = FALSE, row.names = FALSE)
+```
+
+Remove low-confidence identifications before analysis in Perseus:
+```{r}
+# Remove proteins with <2X fold-change over no construct control (based on raw intensities)
+fcMcamNoneBaq <- proteinIntensitiesBioNorm %>%
+  select(Condition, BiologicalReplicate, Majority.protein.IDs, Gene.names, iBAQ) %>%
+  mutate(iBAQ = log2(iBAQ)) %>%
+  mutate(iBAQ = ifelse(is.infinite(iBAQ), NA, iBAQ)) %>%
+  group_by(Condition, Majority.protein.IDs) %>%
+  summarize(meaniBAQ = mean(iBAQ, na.rm = T)) %>%
+  ungroup() %>%
+  spread(key = Condition, value = meaniBAQ) %>%
+  filter(!is.na(McamBira)) %>%
+  mutate(fcMcamNone = McamBira - None) %>%
+  mutate(fcMcamNone = ifelse(is.na(None), Inf, fcMcamNone)) %>%
+  filter(fcMcamNone > 1)
+
+# Remove proteins without at least 2 unique peptides in 2 technical replicates of MCAM-BirA* (DMSO)
+proteinGroups2unique <- proteinGroups %>% 
+  select(Majority.protein.IDs, Unique.peptides.s1_MCAM_BirA_DMSO_A1, Unique.peptides.s1_MCAM_BirA_DMSO_A2,
+         Unique.peptides.s5_MCAM_BirA_DMSO_B1, Unique.peptides.s5_MCAM_BirA_DMSO_B2,
+         Unique.peptides.s10_MCAM_BirA_DMSO_C1, Unique.peptides.s10_MCAM_BirA_DMSO_C1) %>%
+  mutate_if(is.numeric, function(x){x > 1}) %>%
+  mutate(sumUnique = Unique.peptides.s1_MCAM_BirA_DMSO_A1 + Unique.peptides.s1_MCAM_BirA_DMSO_A2+
+         Unique.peptides.s5_MCAM_BirA_DMSO_B1+ Unique.peptides.s5_MCAM_BirA_DMSO_B2+
+         Unique.peptides.s10_MCAM_BirA_DMSO_C1+ Unique.peptides.s10_MCAM_BirA_DMSO_C1) %>%
+  filter(sumUnique > 1) %>%
+  select(Majority.protein.IDs)
+
+onlyBySite <- proteinGroups %>% filter(Only.identified.by.site == "+") %>% select(Majority.protein.IDs)
+allFilteredHumanMQbaq <- formatForMaxQuant(proteinIntensitiesBioNorm %>% filter(!Majority.protein.IDs %in% onlyBySite$Majority.protein.IDs), "iBAQnorm")
+allFilteredHumanQCbaq <- filter(allFilteredHumanMQbaq, ((McamBiraA == 0) + (McamBiraB == 0) + (McamBiraC == 0)) < 2) %>%
+  filter(Majority.protein.IDs %in% proteinGroups2unique$Majority.protein.IDs) %>%
+  filter(Majority.protein.IDs %in% fcMcamNoneBaq$Majority.protein.IDs) %>% arrange(Majority.protein.IDs)
+
+# Save for input to Perseus
+write.table(allFilteredHumanQCbaq, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/Perseus20230512/Input/20230512_allFilteredHuman20211101BioID_intensityMedianNorm_MQ_QCd_iBAQ_Test.txt", sep = ""),  sep = "\t", row.names = F)
+```
+
+Results of t-test in Perseus:
+```{r}
+perseusAllFilteredQCbaq <- read_delim(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/Perseus20230512/Output/20230512_Perseus_allFilteredHuman20211101BioID_intensityMedianNorm_MQ_QCd_iBAQ_Edit.txt", sep = "")) %>%
+  rename(qValueMcamLyn = "Student's T-test q-value McamBira_LynBira",
+         qValueMcamNes = "Student's T-test q-value McamBira_BiraNes",
+         fcMcamLyn = "Student's T-test Difference McamBira_LynBira",
+         fcMcamNes = "Student's T-test Difference McamBira_BiraNes",
+         pValueMcamLyn = "-Log Student's T-test p-value McamBira_LynBira",
+         pValueMcamNes = "-Log Student's T-test p-value McamBira_BiraNes",
+         tScoreMcamNes = "Student's T-test Test statistic McamBira_BiraNes") %>%
+  mutate(firstID = str_extract(Majority.protein.IDs, "[^;]*")) %>%
+  mutate(firstID = ifelse(firstID == "MCAMBirA", "P43121", firstID))
+
+
+perseusAllFilteredQCbaqS0 <- read_delim(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/Perseus20230512/Output/20230512_Perseus_allFilteredHuman20211101BioID_intensityMedianNorm_MQ_QCd_iBAQ_s0-5_Edit.txt", sep = "")) %>%
+  rename(qValueMcamLyn = "Student's T-test q-value McamBira_LynBira",
+         fcMcamLyn = "Student's T-test Difference McamBira_LynBira",
+         pValueMcamLyn = "-Log Student's T-test p-value McamBira_LynBira") %>%
+  mutate(firstID = str_extract(Majority.protein.IDs, "[^;]*")) %>%
+  mutate(firstID = ifelse(firstID == "MCAMBirA", "P43121", firstID))
+
+identical(perseusAllFilteredQCbaq$Majority.protein.IDs,perseusAllFilteredQCbaqS0$Majority.protein.IDs)
+identical(perseusAllFilteredQCbaq$pValueMcamLyn,perseusAllFilteredQCbaqS0$pValueMcamLyn)
+identical(perseusAllFilteredQCbaq$qValueMcamLyn,perseusAllFilteredQCbaqS0$qValueMcamLyn) # Should be false
+identical(perseusAllFilteredQCbaq$fcMcamLyn,perseusAllFilteredQCbaqS0$fcMcamLyn)
+```
+
+Fold-change
+```{r}
+fcBaq <- proteinIntensitiesBioNorm %>%
+  select(Condition, Majority.protein.IDs, Gene.names, iBAQnorm) %>%
+  filter(iBAQnorm != 0) %>%
+  mutate(iBAQnorm = log2(iBAQnorm))  %>%
+  mutate(iBAQnorm = ifelse(is.infinite(iBAQnorm), NA, iBAQnorm)) %>%
+  group_by(Condition, Majority.protein.IDs, Gene.names) %>%
+  summarize(meanIntensity = mean(iBAQnorm, na.rm = T)) %>%
+  ungroup() %>%
+  spread(key = Condition, value = meanIntensity) %>%
+  dplyr::mutate(fcMcamLyn = McamBira - LynBira,
+                fcMcamNes = McamBira - BiraNes,
+                avgMcamLyn = (McamBira + LynBira)/2,
+                avgMcamNes = (McamBira + BiraNes)/2)
+  
+fcPerseusBaq <- fcBaq %>%
+  filter(Majority.protein.IDs %in% perseusAllFilteredQCbaq$Majority.protein.IDs)
+nrow(fcPerseusBaq) == nrow(perseusAllFilteredQCbaq)
+
+test <- merge(perseusAllFilteredQCbaq, fcBaq, by = "Majority.protein.IDs")
+all.equal(test$fcMcamLyn.x, test$fcMcamLyn.y)
+plot(test$fcMcamLyn.x, test$fcMcamLyn.y) # Looks like some rounding error, but fc is essentially the same as Perseus
+plot(test$fcMcamNes.x, test$fcMcamNes.y)
+remove(test)
+```
+
+```{r}
+# SAINT results
+reprint17916 <- read.delim(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/Reprint20230505/Output/20230503_17916_RenamedPrey_HumanContaminantsOnly_Reprint.tab", sep = ""))
+saint17916 <- read.delim(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/Reprint20230505/Output/20230503_17916_RenamedPrey_HumanContaminantsOnly.output", sep = ""))
+
+test <- merge(reprint17916, saint17916, by.x = "PROTID", by.y = "Prey")
+plot(test$AvgP, test$MCAM_SP)
+remove(test)
+## SAINT score from raw SAINT file and REPRINT matrix is not the same (because of "2 best" option). Using SAINT scores from raw SAINT file since I am using the FDR cutoff from this
+
+# Prey in SAINT output converts to all caps. (samples with BirA* and CON__P35908v2).
+setdiff(saint17916$Prey, reprintSpcAllRenamedHumanCon$PROTID)
+setdiff(reprint17916$PROTID, reprintSpcAllRenamedHumanCon$PROTID)
+
+# Remove common contaminants (human)
+sum(duplicated(c(saint17916$Prey, toupper(contaminants$firstIDnew))))
+nrow(saint17916 %>% filter(Prey %in% toupper(contaminants$firstIDnew))) # No duplicates
+
+saintFilt <- saint17916 %>%
+  filter(!Prey %in% toupper(contaminants$firstIDnew)) %>% # Removed 33
+  filter(!Prey %in% c("LYN11BIRA", "BIRANES"))
+reprintFilt <- reprint17916 %>% filter(PROTID %in% saintFilt$Prey)
+(nrow(saint17916) - nrow(saintFilt)) == (nrow(saint17916 %>% filter(Prey %in% toupper(contaminants$firstIDnew))) + 2) # Number of contaminants + Lyn-BirA* and BirA-NES
+
+# Get "firstID" of all Majority.protein.IDs in proteinGroups file
+allFirstID <- proteinGroups %>% dplyr::select(Majority.protein.IDs, Gene.names) %>%
+  mutate(firstID = str_extract(Majority.protein.IDs, regex('[^;]*'))) %>%
+  mutate(Majority.protein.IDs.New = str_remove_all(Majority.protein.IDs, "CON__ENSEMBL:")) %>%
+  mutate(Majority.protein.IDs.New = str_remove_all(Majority.protein.IDs.New, "CON__")) %>%
+  mutate(Majority.protein.IDs.New = ifelse(str_detect(Majority.protein.IDs.New, "P04259") & Gene.names != "KRT6B", "CON_P04259", Majority.protein.IDs.New)) %>%
+  mutate(Majority.protein.IDs.New = str_remove_all(Majority.protein.IDs.New, "REFSEQ:")) %>%
+  mutate(Majority.protein.IDs.New = ifelse(str_detect(Majority.protein.IDs.New, "MCAMBirA"), "P43121", Majority.protein.IDs.New)) %>%
+  mutate(firstIDnew = str_extract(Majority.protein.IDs.New, regex('[^;]*')))
+
+# 104 proteins in Perseus analysis were not in SAINT (No SPCs)
+length(setdiff(perseusAllFilteredQCbaq$firstID, saintFilt$Prey))
+length(setdiff(toupper(perseusAllFilteredQCbaq$firstID), saintFilt$Prey))
+
+missing <- proteinIntensitiesBioNorm %>% 
+  filter(Majority.protein.IDs %in% perseusAllFilteredQCbaq$Majority.protein.IDs[perseusAllFilteredQCbaq$firstID %in% setdiff(toupper(perseusAllFilteredQCbaq$firstID), saintFilt$Prey)])
+filter(missing, Condition == "McamBira") %>% summarize(sum(spc))
+
+# 417 proteins in SAINT but not Perseus analysis (because of filtering for high confidence identifcations)
+length(setdiff(saintFilt$Prey, toupper(perseusAllFilteredQCbaq$firstID)))
+setdiff(saintFilt$Prey, toupper(allFirstID$firstIDnew))
+
+# Lyn-BirA* and BirA*-NES were removed during filtering
+filter(saint17916, str_detect(Prey, "BIR"))
+filter(saintFilt, str_detect(Prey, "BIR"))
+
+setdiff(saint17916$Prey, toupper(allFirstID$firstID))
+setdiff(saint17916$Prey, toupper(allFirstID$firstIDnew)) # Making sure that firstIDnew from proteinGroups matches Prey names
+
+setdiff(perseusAllFilteredQCbaq$firstID, allFirstID$firstID) # MCAM
+setdiff(perseusAllFilteredQCbaq$firstID, allFirstID$firstIDnew)
+```
+
+Figure
+```{r}
+saintPlot <- merge(saintFilt, reprintFilt %>% dplyr::select(MCAM_FC_A, MCAM_FC_B, PROTID, MCAM_AVG_SPC), by.x = "Prey", by.y = "PROTID") %>%
+  mutate(Sig = ifelse(FDR < 0.05, "Yes", "No"))
+
+# 416 significant proteins (after removal of common contaminants)
+saintPlot %>% count(Sig)
+nrow(saintFilt %>% filter(FDR < 0.05))
+
+sum(is.na(saintFilt$FDR))
+
+# No insignificant SAINT scores above the FDR cutoff
+max(saintPlot$AvgP[saintPlot$FDR > 0.05])
+min(filter(saintPlot, FDR < 0.05)["AvgP"]) 
+```
+
+Figure of SAINT results:
+```{r}
+ermClr = c("MSN" = "#377eb8", "EZR" = "#4daf4a", "RDX" = "#DFAF37", "MCAM" = "#cf00e2")
+sigClr = c("No" = "black", "Yes" = "#9E1A1A")
+
+ggplot() +
+  geom_point(data = saintPlot %>% filter(!PreyGene %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")),
+             aes(x = log2(MCAM_FC_B), y = as.numeric(AvgP), color = Sig, size = MCAM_AVG_SPC), alpha = 0.2)  +
+  geom_point(data = saintPlot %>% filter(PreyGene %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")),
+             aes(x = log2(MCAM_FC_B), y = as.numeric(AvgP), size = MCAM_AVG_SPC), fill = "#00B8EA", color = "#007c9e", shape = 21) +
+  geom_hline(yintercept = min(filter(saintPlot, FDR < 0.05)["AvgP"])) +
+  theme_classic() +
+  ylab("Saint Score") +
+  xlab("Log2 Fold Change") +
+  scale_color_manual(values = sigClr) +
+  scale_size_area(breaks = c(1,10,50,100, 1000)) +
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12),
+        legend.text = element_text(size = 12))
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/SAINT-Plot_MCAM_Resized_FC_B_LessColorful.svg", sep = ""), width = 4, height = 2, units = "in", dpi = 600)
+
+nrow(saintPlot %>% filter(!PreyGene %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"))) + nrow(saintPlot %>% filter(PreyGene %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")))
+nrow(saintPlot)
+anyNA(saintPlot)
+
+ggplot() +
+  geom_point(data = saintPlot,
+             aes(x = log2(MCAM_FC_B), y = as.numeric(AvgP), color = Sig, size = MCAM_AVG_SPC), alpha = 0.2)  +
+  geom_point(data = saintPlot %>% filter(PreyGene %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")),
+             aes(x = log2(MCAM_FC_B), y = as.numeric(AvgP), size = MCAM_AVG_SPC, fill = PreyGene ), shape = 21) +
+  geom_hline(yintercept = min(filter(saintPlot, FDR < 0.05)["AvgP"])) +
+  theme_classic() +
+  ylab("Saint Score") +
+  xlab("Log2 Fold Change") +
+  scale_color_manual(values = sigClr) +
+  scale_size_area(breaks = c(1,10,50,100, 1000)) +
+  theme(axis.text = element_text(size = 12),
+        axis.title = element_text(size = 12),
+        legend.text = element_text(size = 12))
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/SAINT-Plot_MCAM_Resized_FC_B_ColoredGenes.svg", sep = ""), width = 4, height = 2, units = "in", dpi = 600)
+
+```
+
+Prepare for volcano plot
+```{r}
+volcanoDataLyn <- merge(perseusAllFilteredQCbaq %>% mutate(firstID = toupper(firstID)), 
+                        select(saintPlot, Prey, FDR, Sig), by.x = "firstID", by.y = "Prey", all.x = T, all.y = F) %>%
+  mutate(pValueMcamLyn = ifelse((is.nan(LynBiraA)+is.nan(LynBiraB)+is.nan(LynBiraC)) > 1, -.5, pValueMcamLyn)) %>%
+  mutate(fcMcamLyn = ifelse(is.nan(fcMcamLyn), 8, fcMcamLyn)) 
+
+# write_csv(volcanoDataLyn, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/volcanoData_NewSaint.csv", sep = ""))
+
+nrow(filter(volcanoDataLyn, is.na(FDR))) # 104
+filter(volcanoDataLyn, is.nan(fcMcamLyn))
+filter(volcanoDataLyn, fcMcamLyn == 8) # 2 proteins without FC
+filter(volcanoDataLyn, pValueMcamLyn == -.5) # 5 proteins without p-value
+filter(volcanoDataLyn, pValueMcamLyn == -.5, fcMcamLyn == 8) 
+setdiff(perseusAllFilteredQCbaq %>% select(pValueMcamLyn, pValueMcamNes, fcMcamLyn), volcanoDataLyn %>% select(pValueMcamLyn, pValueMcamNes, fcMcamLyn))
+
+filter(volcanoDataLyn, str_detect(firstID, "BIRA"))
+sigVolcanoSaint <- volcanoDataLyn %>% filter(Sig == "Yes")
+
+length(setdiff(saintPlot$Prey[saintPlot$Sig == "Yes"], sigVolcanoSaint$firstID)) + nrow(sigVolcanoSaint) #416
+
+```
+
+Volcano plot:
+```{r}
+fdrSig <- filter(volcanoDataLyn, FDR < 0.05) %>% dplyr::select(Majority.protein.IDs)
+nrow(volcanoDataLyn %>% filter(!Majority.protein.IDs %in% fdrSig$Majority.protein.IDs)) + nrow(fdrSig)
+nrow(fdrSig) == nrow(sigVolcanoSaint)
+
+ggplot() + 
+  geom_point(data = volcanoDataLyn %>% filter(!Majority.protein.IDs %in% fdrSig$Majority.protein.IDs, fcMcamLyn != 8, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), 
+             aes(x = fcMcamLyn, y = pValueMcamLyn), alpha = 0.6, size = 1.5)  +
+  geom_point(data = volcanoDataLyn %>% filter(Majority.protein.IDs %in% fdrSig$Majority.protein.IDs, fcMcamLyn != 8, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), aes(x = fcMcamLyn, y = pValueMcamLyn),
+             alpha = 0.6, color = "#9E1A1A", size = 1.5) + 
+  geom_point(data = volcanoDataLyn %>% filter(Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), aes(x = fcMcamLyn, y = pValueMcamLyn),
+             color = "#00B8EA", size = 2.2) +
+  # geom_hline(yintercept = min(volcanoDataLyn$pValueMcamLyn[volcanoDataLyn$qValueMcamLyn < 0.05], na.rm = T)) + 
+  theme_classic() + 
+    ylab("-log10(p-Value)") +
+  xlab("log2(MCAM-BirA*/Lyn11-BirA*)") +
+  scale_x_continuous(breaks = seq(-6,6,2), limits = c(-6,6)) +
+  theme(text = element_text(size = 18),
+        axis.text = element_text(size = 18)) 
+
+# All data was plotted except for 2 proteins with no fold change (missing values for all Lyn-BirA* samples)
+nrow(volcanoDataLyn %>% filter(!Majority.protein.IDs %in% fdrSig$Majority.protein.IDs, fcMcamLyn != 8, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"))) +
+  nrow(volcanoDataLyn %>% filter(Majority.protein.IDs %in% fdrSig$Majority.protein.IDs, fcMcamLyn != 8, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"))) +
+  nrow(volcanoDataLyn %>% filter(Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"))) +
+  nrow(volcanoDataLyn %>% filter(fcMcamLyn == 8))
+
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/LynVolcanoPlot_WithMCAM_Corrected_FAM129B_LessColor.svg", sep = ""), width = 7, height = 3.7, units = "in", dpi = 600)
+
+ggplot() + 
+  geom_point(data = volcanoDataLyn %>% filter(!Majority.protein.IDs %in% fdrSig$Majority.protein.IDs, fcMcamLyn != 8, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), 
+             aes(x = fcMcamLyn, y = pValueMcamLyn), alpha = 0.6, size = 1.5)  +
+  geom_point(data = volcanoDataLyn %>% filter(Majority.protein.IDs %in% fdrSig$Majority.protein.IDs, fcMcamLyn != 8, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), aes(x = fcMcamLyn, y = pValueMcamLyn),
+             alpha = 0.6, color = "#9E1A1A", size = 1.5) + 
+  geom_point(data = volcanoDataLyn %>% filter(Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), aes(x = fcMcamLyn, y = pValueMcamLyn, color = Gene.names), size = 2.2) +
+  # geom_hline(yintercept = min(volcanoDataLyn$pValueMcamLyn[volcanoDataLyn$qValueMcamLyn < 0.05], na.rm = T)) + 
+  theme_classic() + 
+    ylab("-log10(p-Value)") +
+  xlab("log2(MCAM-BirA*/Lyn11-BirA*)") +
+  scale_x_continuous(breaks = seq(-6,6,2), limits = c(-6,6)) +
+  theme(text = element_text(size = 18),
+        axis.text = element_text(size = 18)) 
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/LynVolcanoPlot_WithMCAM_Corrected_FAM129B_ColoredGenes.svg", sep = ""), width = 7, height = 3.7, units = "in", dpi = 600)
+```
+MA plot for results
+```{r}
+# Significant proteins
+sigPerseus <- perseusAllFilteredQCbaq %>% filter(qValueMcamLyn < 0.05)
+sigPerseusS0 <- perseusAllFilteredQCbaqS0 %>% filter(qValueMcamLyn < 0.05)
+
+allPerseusMaj <- union(sigPerseus$Majority.protein.IDs, sigPerseusS0$Majority.protein.IDs)
+
+perseusAllFilteredQCbaq %>% filter(Majority.protein.IDs %in% allPerseusMaj) %>%
+  filter(!firstID %in% saintPlot$Prey) 
+perseusAllFilteredQCbaq %>% filter(Majority.protein.IDs %in% allPerseusMaj) %>% 
+  filter(!firstID %in% saintPlot$Prey, fcMcamLyn < 0) # 26 proteins with significant negative fold-change were not in the SAINT analysiss
+
+perseusAllFilteredQCbaq %>% filter(Majority.protein.IDs %in% allPerseusMaj) %>% 
+  filter(!firstID %in% saintPlot$Prey, fcMcamLyn > 0) # None of the proteins with positive enrichment are excluded from SAINT analysis
+
+ggplot() +
+  geom_point(data = fcPerseusBaq %>% filter(!Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"), !is.na(fcPerseusBaq$fcMcamLyn)), aes(x = avgMcamLyn, y = fcMcamLyn), alpha = 0.4, size = 1.5) +
+  geom_point(data = fcPerseusBaq %>% filter(Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"), !is.na(fcPerseusBaq$fcMcamLyn)), aes(x = avgMcamLyn, y = fcMcamLyn), color = "#e66101", size = 1.8, alpha = 0.7) +
+  geom_point(data = fcPerseusBaq %>% filter(Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), aes(x = avgMcamLyn, y = fcMcamLyn), color = "#00B8EA", size = 2) +
+  theme_classic() +
+  geom_hline(yintercept = 0) +
+  ylim(-6,6) +
+  ylab("log2(MCAM-BirA*/Lyn11-BirA*)") +
+  xlab("Average Normalized iBAQ") +
+  theme(text = element_text(size = 18))
+
+nrow(fcPerseusBaq %>% filter(!Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"))) +
+  nrow(fcPerseusBaq %>% filter(Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"))) +
+  nrow(fcPerseusBaq %>% filter(Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")))
+nrow(fcPerseusBaq %>% filter(!Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"), !is.na(fcPerseusBaq$fcMcamLyn))) +
+  nrow(fcPerseusBaq %>% filter(Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"), !is.na(fcPerseusBaq$fcMcamLyn))) +
+  nrow(fcPerseusBaq %>% filter(Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")))
+sum(is.na(fcPerseusBaq$fcMcamLyn))
+sum(is.na(fcPerseusBaq$avgMcamLyn))
+
+nrow(fcPerseusBaq %>% filter(!Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"))) + nrow(fcPerseusBaq %>% filter(Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B"))) + 5
+
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/MAplot_Results.svg", sep = ""), width = 6, height = 3.7, units = "in", dpi = 600)
+
+ggplot() +
+  geom_point(data = fcPerseusBaq %>% filter(!Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), aes(x = avgMcamLyn, y = fcMcamLyn), alpha = 0.4, size = 1.5) +
+  geom_point(data = fcPerseusBaq %>% filter(Majority.protein.IDs %in% allPerseusMaj, !Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), aes(x = avgMcamLyn, y = fcMcamLyn), color = "#e66101", size = 1.8, alpha = 0.7) +
+  geom_point(data = fcPerseusBaq %>% filter(Gene.names %in% c("MSN", "RDX", "EZR", "MCAM", "FAM129B")), aes(x = avgMcamLyn, y = fcMcamLyn, color = Gene.names), size = 2) +
+  theme_classic() +
+  geom_hline(yintercept = 0) +
+  ylim(-6,6) +
+  ylab("log2(MCAM-BirA*/Lyn11-BirA*)") +
+  xlab("Average Normalized iBAQ") +
+  theme(text = element_text(size = 18))
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/MAplot_Results_ColoredGenes.svg", sep = ""), width = 6, height = 3.7, units = "in", dpi = 600)
+```
+
+MA and volcano plot for supplemental
+```{r}
+# Proteins that were significant with one or both s0 settings (0 or 0.5)
+bothPerseusMaj <- intersect(sigPerseus$Majority.protein.IDs, sigPerseusS0$Majority.protein.IDs)
+onlyPerseusMaj <- setdiff(sigPerseus$Majority.protein.IDs, sigPerseusS0$Majority.protein.IDs)
+onlyS0Maj <- setdiff(sigPerseusS0$Majority.protein.IDs, sigPerseus$Majority.protein.IDs)
+
+(length(bothPerseusMaj) + length(onlyS0Maj) + length(onlyPerseusMaj)) == length(allPerseusMaj)
+
+ggplot() +
+  geom_point(data = fcPerseusBaq %>% filter(!Majority.protein.IDs %in% allPerseusMaj, !is.na(fcMcamLyn)), aes(x = avgMcamLyn, y = fcMcamLyn), alpha = 0.3, size = 1.5) +
+  geom_point(data = fcPerseusBaq %>% filter(Majority.protein.IDs %in% bothPerseusMaj), aes(x = avgMcamLyn, y = fcMcamLyn), alpha = 0.9, color = "#e66101", size = 2) +
+  geom_point(data = fcPerseusBaq %>% filter(Majority.protein.IDs %in% onlyPerseusMaj), aes(x = avgMcamLyn, y = fcMcamLyn), alpha = 0.9, color = "#e8ba28", size = 2) +
+  geom_point(data = fcPerseusBaq %>% filter(Majority.protein.IDs %in% onlyS0Maj), aes(x = avgMcamLyn, y = fcMcamLyn),alpha = 0.9, color = "#8a00c2", size = 2) +
+  theme_classic() +
+  geom_hline(yintercept = 0) +
+  ylim(-6,6) +
+  ylab("log2(MCAM-BirA*/Lyn11-BirA*)") +
+  xlab("Average Normalized iBAQ") +
+  theme(text = element_text(size = 18))
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/MAplot_Significance.svg", sep = ""), width = 6, height = 3.7, units = "in", dpi = 600)
+
+nrow(fcPerseusBaq %>% filter(!Majority.protein.IDs %in% allPerseusMaj, !is.na(fcMcamLyn))) + 
+  nrow(fcPerseusBaq %>% filter(Majority.protein.IDs %in% bothPerseusMaj)) + 
+  nrow(fcPerseusBaq %>% filter(Majority.protein.IDs %in% onlyPerseusMaj)) + 
+  nrow(fcPerseusBaq %>% filter(Majority.protein.IDs %in% onlyS0Maj))
+
+ggplot(data = volcanoDataLyn, aes(x = fcMcamLyn, y = pValueMcamLyn)) + 
+  geom_point(data = volcanoDataLyn %>% filter(!Majority.protein.IDs %in% allPerseusMaj, fcMcamLyn != 8), aes(x = fcMcamLyn, y = pValueMcamLyn), alpha = 0.3, size = 1.5)  +
+  geom_point(data = volcanoDataLyn %>% filter(Majority.protein.IDs %in% bothPerseusMaj, fcMcamLyn != 8), alpha = 0.9, color ="#e66101", size = 2) + 
+  geom_point(data = volcanoDataLyn %>% filter(Majority.protein.IDs %in% onlyPerseusMaj, fcMcamLyn != 8), alpha = 0.9, color ="#e8ba28", size = 2) + 
+  geom_point(data = volcanoDataLyn %>% filter(Majority.protein.IDs %in% onlyS0Maj, fcMcamLyn != 8), alpha = 0.9, color ="#8a00c2", size = 2) + 
+  # geom_hline(yintercept = min(volcanoDataLyn$pValueMcamLyn[volcanoDataLyn$qValueMcamLyn < 0.05], na.rm = T)) + 
+  theme_classic() + 
+    ylab("-log10(p-Value)") +
+  xlab("log2(MCAM-BirA*/Lyn11-BirA*)") +
+  scale_x_continuous(breaks = seq(-6,6,2), limits = c(-6,6)) +
+  theme(text = element_text(size = 18),
+        axis.text = element_text(size = 18)) 
+
+nrow(volcanoDataLyn %>% filter(!Majority.protein.IDs %in% allPerseusMaj, fcMcamLyn != 8)) + nrow(volcanoDataLyn %>% filter(Majority.protein.IDs %in% bothPerseusMaj, fcMcamLyn != 8)) +
+  nrow(volcanoDataLyn %>% filter(Majority.protein.IDs %in% onlyPerseusMaj, fcMcamLyn != 8)) + nrow(volcanoDataLyn %>% filter(Majority.protein.IDs %in% onlyS0Maj, fcMcamLyn != 8)) +
+  nrow(volcanoDataLyn %>% filter(fcMcamLyn == 8))
+
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/LynVolcanoPlot_WithMCAM_Corrected_Significance.svg", sep = ""), width = 7, height = 3.7, units = "in", dpi = 600)
+```
+
+Significant genes with positive fold-change:
+```{r}
+hitPerseus <- sigPerseus %>% filter(fcMcamLyn > 0)
+hitPerseusS0 <- sigPerseusS0 %>% filter(fcMcamLyn > 0)
+hitPM <- union(hitPerseusS0$Majority.protein.IDs, hitPerseus$Majority.protein.IDs)
+
+hitBaq <- perseusAllFilteredQCbaq %>%
+  filter(Majority.protein.IDs %in% allPerseusMaj, fcMcamLyn > 0) %>%
+  dplyr::mutate(Significant = ifelse(Majority.protein.IDs %in% bothPerseusMaj, "Both", NA)) %>%
+  dplyr::mutate(Significant = ifelse(Majority.protein.IDs %in% onlyPerseusMaj, "s0 = 0", Significant)) %>%
+  dplyr::mutate(Significant = ifelse(Majority.protein.IDs %in% onlyS0Maj, "s0 = 0.5", Significant),
+                SigSaint = ifelse(Majority.protein.IDs %in% fdrSig$Majority.protein.IDs, "Yes", "No")) %>%
+  merge(fcPerseusBaq %>% select(avgMcamLyn, Majority.protein.IDs), by = "Majority.protein.IDs")
+
+setdiff(hitBaq$Majority.protein.IDs, hitPM)
+hitSaintAndPerseus <- intersect(hitPM, fdrSig$Majority.protein.IDs)
+setdiff(hitSaintAndPerseus, hitBaq$Majority.protein.IDs[hitBaq$SigSaint == "Yes"])
+setdiff(hitBaq$Majority.protein.IDs[hitBaq$SigSaint == "Yes"], hitSaintAndPerseus)
+
+hitBaq # 30 proteins with significant positive fold changes
+# write_csv(hitBaq, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/perseus_SignificantResults.csv", sep = ""))
+
+# All positively enriched significant proteins in SAINT (26 of the proteins with significant negative enrichment were not in SAINT)
+perseusAllFilteredQCbaq %>% filter(Majority.protein.IDs %in% hitPM) %>%
+  filter(!firstID %in% saintFilt$Prey)
+
+noFC <- filter(fcPerseusBaq, is.na(fcMcamLyn))
+```
+
+Bar graph for ERM proteins
+```{r}
+bar <- function(intensities, genes, title){
+  meanIntensities <- intensities %>% 
+    group_by(Condition, Protein.IDs, Gene.names) %>%
+    summarize(meanNorm = mean(iBAQnorm, na.rm = T),
+              sdNorm = sd(iBAQnorm, na.rm = T),
+              mean = mean(iBAQ, na.rm = T),
+              sd = sd(iBAQ, na.rm = T),
+              seNorm = sd(iBAQnorm, na.rm = T)/length(iBAQnorm),
+              se = sd(iBAQ, na.rm = T)/length(iBAQ)) %>%
+    ungroup() 
+  
+  condClr <- c("BiraNes" = "#fb8072", "LynBira" = "#80b1d3", "McamBira" = "#fdb462")
+  
+  print(ggplot(meanIntensities %>% filter(Gene.names %in% genes), aes(x = Gene.names, y = mean, fill = Condition)) + geom_col(position = "dodge") +
+    geom_point(data = intensities %>% filter(Gene.names %in% genes), aes(x = Gene.names, y = iBAQ, fill = Condition), position = position_jitterdodge(jitter.height = 0, jitter.width = 0.05), alpha = .7, shape = 21) + ggtitle("Raw") +
+    geom_errorbar(data = meanIntensities %>% filter(Gene.names %in% genes), aes(ymin = mean-sd, ymax = mean+sd),
+                  position = position_dodge(width=0.9), alpha = 0.7, width = 0.4) +
+    theme_classic() +
+    theme(text = element_text(size = 18),
+          axis.text = element_text(size = 18),
+          legend.text = element_text(size = 14)) +
+      scale_fill_manual(values = condClr) +
+      ylab("Raw iBAQ"))
+  
+  print(ggplot(meanIntensities %>% filter(Gene.names %in% genes), aes(x = Gene.names, y = meanNorm, fill = Condition)) + geom_col(position = "dodge") +
+    geom_point(data = intensities %>% filter(Gene.names %in% genes), aes(x = Gene.names, y = iBAQnorm, fill = Condition), position = position_jitterdodge(jitter.height = 0, jitter.width = 0.2, dodge.width = .9), alpha = .7, size = 2) + ggtitle(title) +
+    geom_errorbar(data = meanIntensities %>% filter(Gene.names %in% genes), aes(ymin = meanNorm-sdNorm, ymax = meanNorm+sdNorm),
+                  position = position_dodge(width=0.9), alpha = 0.7, width = 0.4) +
+      theme_classic() +
+    theme(text = element_text(size = 18),
+          axis.text = element_text(size = 18),
+          legend.text = element_text(size = 14)) +
+      scale_fill_manual(values = condClr) +
+      ylab("Normalized iBAQ"))
+  
+  
+  for(val in 1:length(genes)){
+    
+    print(genes[val])
+    print("Norm iBAQ")
+    print(t.test(filter(intensities, Gene.names == genes[val], Condition == "McamBira") %>% select(iBAQnorm) %>% mutate_all(log2),
+           filter(intensities, Gene.names == genes[val], Condition == "LynBira") %>% select(iBAQnorm) %>% mutate_all(log2)), alternative = "greater")
+  }
+}
+
+bar(proteinIntensitiesBioNorm %>%
+      filter(Condition != "None", Condition != "McamBiraROCKi") %>%
+      filter(Gene.names %in% c("MSN", "RDX", "EZR")) %>%
+      mutate(Gene.names = factor(Gene.names, levels = c("MSN", "EZR", "RDX"))), c("MSN", "RDX", "EZR"), "Normalized iBAQ")
+
+# ggsave(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/FiguresForPaper/ERM_NormalizediBAQ.svg",sep = ""),
+   # width = 5, height = 3.5, units = "in", dpi = 600)
+```
+
+P-values based on FDR adjusted T-test in Perseus (used for significance of bar graphs)
+```{r}
+filter(perseusAllFilteredQCbaq, Gene.names %in% (c("MSN", "RDX", "EZR"))) %>%
+  select(Gene.names, all_of(contains("qValue")), all_of(contains("pValue"))) %>%
+  arrange(qValueMcamLyn)
+```
+
+Significantly enriched SAINT genes for GSE:
+```{r}
+sigSaint <- saintFilt %>% filter(FDR < 0.05) %>%
+  dplyr::select(Prey, PreyGene) %>% 
+  merge(allFirstID %>% dplyr::select(Majority.protein.IDs, Gene.names, firstIDnew) %>%
+          mutate(firstIDnew = toupper(firstIDnew)), by.x = "Prey", by.y = "firstIDnew")
+
+# write.csv(sigSaint, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/GSE/Paper/significant_NewSaint_Test.csv", sep = ""))
+```
+
+Combine SAINT and REPRINT for supplemental:
+```{r}
+supp <- merge(saintFilt, reprintFilt %>% dplyr::select(PROTID, MCAM_AVG_SPC, MCAM_FC_A, MCAM_FC_B), by.x = "Prey", by.y = "PROTID")
+all.equal(saintFilt %>% arrange(Prey), supp %>% select(colnames(saintFilt)) %>% arrange(Prey))
+all.equal(reprintFilt %>% arrange(PROTID) %>% select(any_of(colnames(supp))), supp %>% arrange(Prey) %>% select(any_of(colnames(reprintFilt))))
+nrow(supp) == nrow(saintFilt)
+anyNA(supp)
+
+write_csv(supp, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/SupplementalSaintData.csv", sep = ""))
+test <- read.csv(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/SupplementalSaintData_Test.csv", sep = "")) 
+
+all.equal(saintFilt %>% arrange(Prey), test %>% select(colnames(saint17916)))
+```
+```{r}
+# Supplemental data from evidence file
+evidenceCols <- read.csv(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/evidenceColnames_supplemental.csv", sep = ""))
+
+suppEvidence <- evidence2 %>%
+  filter(Reverse != "+") %>%
+  dplyr::select(all_of(evidenceCols$Selected[1:31])) %>%
+  rename(Andromeda.score = Score)
+write_csv(suppEvidence, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/evidenceSupplemental.csv", sep = ""))
+
+# Supplemental data: protein quantification for technical replicates
+annotation2 <- annotation %>% filter(!str_detect(ProteinGroups, "s4"), !str_detect(ProteinGroups, "s9"))
+suppPgIntensity <- proteinsAll2 %>% 
+  dplyr::select(Majority.protein.IDs, intensity, Raw.file, Reverse) %>%
+  filter(Reverse != "+") %>%
+  merge(proteinGroups %>% dplyr::select(Majority.protein.IDs, iBAQ.peptides), by = "Majority.protein.IDs") %>%
+  merge(annotation2 %>% dplyr::select(ProteinGroups, Raw.file), by = "Raw.file") %>%
+  dplyr::mutate(iBAQ = intensity/iBAQ.peptides) %>%
+  dplyr::select(-Raw.file, -intensity) %>%
+  spread(key = ProteinGroups, value = iBAQ, fill = 0) %>%
+  rename_with(.fn = function(.x){paste0(.x, "_iBAQ")}, .cols = annotation2$ProteinGroups)
+
+suppPgSpc <- proteinsAll2 %>% 
+  dplyr::select(Majority.protein.IDs, spc, Raw.file, Reverse) %>%
+  filter(Reverse != "+") %>%
+  merge(proteinGroups %>% dplyr::select(Majority.protein.IDs), by = "Majority.protein.IDs") %>%
+  merge(annotation2 %>% dplyr::select(ProteinGroups, Raw.file), by = "Raw.file") %>%
+  dplyr::select(-Raw.file) %>%
+  spread(key = ProteinGroups, value = spc, fill = 0) %>%
+  rename_with(.fn = function(.x){paste0(.x, "_MS.MS.counts")}, .cols = annotation2$ProteinGroups)
+
+pgCols <- read.csv(paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/colnamesPg_Supplemental.csv", sep = ""))
+
+suppPg <- merge(suppPgIntensity %>% dplyr::select(-Reverse), suppPgSpc %>% dplyr::select(-Reverse), by = "Majority.protein.IDs") %>%
+  merge(proteinGroups %>% dplyr::select(all_of(pgCols$Selected1[1:75])), by = "Majority.protein.IDs") %>%
+  dplyr::select(all_of(pgCols$Selected2[1:119]))
+
+# Check
+length(colnames(suppPg))
+filter(suppPg, Majority.protein.IDs %in% proteinGroups$Majority.protein.IDs[proteinGroups$Reverse == "+"])
+anyNA(suppPg)
+
+write_csv(suppPg, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/proteinGroupsSupplemental.csv", sep = ""))
+
+# Perseus supplemental
+suppPerseus <- allFilteredHumanQCbaq %>%
+  merge(perseusAllFilteredQCbaq %>% 
+          dplyr::select(pValueMcamLyn, pValueMcamNes, qValueMcamLyn, qValueMcamNes, Majority.protein.IDs) %>%
+          dplyr::mutate(pValueMcamLyn = 10^(-pValueMcamLyn)) %>%
+          dplyr::mutate(pValueMcamNes = 10^(-pValueMcamNes)) %>%
+          rename(pValue.Mcam.Vs.LynBira = pValueMcamLyn,
+                 pValue.Mcam.Vs.BiraNes = pValueMcamNes,
+                 qValue.Mcam.Vs.LynBira = qValueMcamLyn,
+                 qValue.Mcam.Vs.BiraNes = qValueMcamNes), by = "Majority.protein.IDs") %>%
+  merge(perseusAllFilteredQCbaqS0 %>% dplyr::select(Majority.protein.IDs, qValueMcamLyn) %>%
+          rename(qValue.Mcam.Vs.LynBirA.s0.5 = qValueMcamLyn), by = "Majority.protein.IDs") %>%
+  merge(fcPerseusBaq %>% dplyr::select(Majority.protein.IDs, fcMcamLyn, fcMcamNes) %>%
+          rename(Foldchange.Mcam.Vs.LynBira = fcMcamLyn,
+                 Foldchange.Mcam.Vs.BiraNes = fcMcamNes), by = "Majority.protein.IDs")
+
+# Check values were preserved
+plot(perseusAllFilteredQCbaq$pValueMcamLyn, -log10(suppPerseus$pValue.Mcam.Vs.LynBira))
+plot(perseusAllFilteredQCbaq$pValueMcamNes, -log10(suppPerseus$pValue.Mcam.Vs.BiraNes))
+all.equal(suppPerseus %>% dplyr::select(any_of(colnames(allFilteredHumanQCbaq))), allFilteredHumanQCbaq %>% dplyr::select(any_of(colnames(suppPerseus))) %>% dplyr::select(any_of(colnames(allFilteredHumanQCbaq))))
+identical(suppPerseus$qValue.Mcam.Vs.LynBira, perseusAllFilteredQCbaq$qValueMcamLyn)
+identical(suppPerseus$qValue.Mcam.Vs.BiraNes, perseusAllFilteredQCbaq$qValueMcamNes)
+identical(suppPerseus$qValue.Mcam.Vs.LynBirA.s0.5, perseusAllFilteredQCbaqS0$qValueMcamLyn)
+identical(suppPerseus$Foldchange.Mcam.Vs.LynBira, fcPerseusBaq$fcMcamLyn)
+identical(suppPerseus$Foldchange.Mcam.Vs.BiraNes, fcPerseusBaq$fcMcamNes)
+
+write_csv(suppPerseus, paste(dirPath, "MassSpecAnalysis/Paper_FinalAnalyses/perseusSupplemental.csv", sep = ""))
+```
+
