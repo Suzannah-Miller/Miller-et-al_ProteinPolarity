@@ -1,8 +1,13 @@
 This contains the R notebooks used to optimize the machine learning portion of the 3P pipeline.
 
+"FeatureSelection_ClassifierTraining" contains the code used to perform feature selection, 
+including plotting the feature values and evaluating highly correlated features for the ML optimization dataset. 
+It also generates the dotplots to compare different ML models trained using the caretList function from caretEnsemble.
+
 It accompanies Supplemental Figures S6 and S7A.
 
-"FeatureSelection_ClassifierTraining" contains the code used to perform feature selection, 
-including plotting the feature values and evaluating highly correlated features.
+"IterativeClassifierTraining" shows the results of iterative training on the ML optimization dataset, where
+a portion of misidentified cells are added to a portion of the original training set to create a new training set
+which contains more "hard-to-classify" cells.
 
-It also generates the dotplots to compare different ML models trained using the caretList function from caretEnsemble.
+It accompanies Figure 5 and Supplemental Figure S7B-F.
