@@ -21,7 +21,7 @@ library(ggbeeswarm)
 
 Path to directory:
 ```{r}
-dirPath <- "/Users/suzannah/Library/CloudStorage/OneDrive-UCB-O365/AhnLabResearch/Experiments/20211101BioID-triplicate/"
+dirPath <- "/Your/Directory/Path/"
 ```
 
 Input data:
