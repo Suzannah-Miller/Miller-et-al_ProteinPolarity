@@ -9,7 +9,7 @@ It calculates the sensitivity and specificity of each iteration of training and 
 Supplemental data for Supp. Table S13 in the last chunks.
 
 ```{r}
-dirPath <- "/Volumes/ahngrp/Suzannah_Thesis_Paper/ERM_Knockdown/"
+dirPath <- "/Your/Directory/Path/"
 ```
 
 Load packages:
