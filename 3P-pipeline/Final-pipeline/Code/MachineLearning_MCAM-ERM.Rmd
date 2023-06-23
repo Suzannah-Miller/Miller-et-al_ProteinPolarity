@@ -517,7 +517,7 @@ checkTypos <- function(rawScoring){
 
 Path for base directory:
 ```{r}
-dirPath <- "/Your/Directory/Path/"
+dirPath <- "/Your/Directory/Path"
 ```
 
 Annotation file, where user defines conditions and replicates for each image.
@@ -1438,7 +1438,6 @@ ML classification of radixin can classify polarized cells reasonably well, even 
 Final classification and save outputs:
 ```{r}
 # write_csv(manualTrainUpdated, paste(dirPath, "Output/combinedManualTraining_3TrainintSets.csv", sep = ""))
-
 # write_csv(metricsCleanCrispr,  paste(dirPath, "Output/metricsCleanCrispr_20221218.csv", sep = ""))
 
 ## MCAM classification for all cells
@@ -1580,6 +1579,36 @@ metricsClean.Classified.MCAM.Final %>%
        filter(!Object %in% mcamModel2_85.All[["trainingSets"]][["Two"]], 
               Object %in% manualTrainTest$Object) %>%
   count(Experiment)
+
+# For classifier with texture (overall)
+analyzeResults2(metricsClean.Classified.MCAM.Two.All %>% 
+                  dplyr::mutate(mainCondition = str_remove(Condition, "_Stain.*")) %>%
+                  merge(manualTrainTest %>% filter(is.na(Segmentation)) %>% 
+                          dplyr::select(ManualScoreMcam, ConfidenceMcam, Object), by = "Object") %>%
+                  filter(!Object %in% mcamModel1_85.All[["trainingSets"]][["Two"]]) %>%
+                  dplyr::mutate(All = "All"),
+               "comboGbmExtraTwo_MCAM1",
+               "ManualScoreMcam", "All")
+
+# For classifier with texture (per cell line) # Somewhat lower sensitivity overall, but disproportionately for KKGK4 (74% vs. ~83%)
+analyzeResults2(metricsClean.Classified.MCAM.Two.All %>% 
+                  dplyr::mutate(mainCondition = str_remove(Condition, "_Stain.*")) %>%
+                  merge(manualTrainTest %>% filter(is.na(Segmentation)) %>% 
+                          dplyr::select(ManualScoreMcam, ConfidenceMcam, Object), by = "Object") %>%
+                  filter(!Object %in% mcamModel1_85.All[["trainingSets"]][["Two"]]) %>%
+                  dplyr::mutate(All = "All"),
+               "comboGbmExtraTwo_MCAM1",
+               "ManualScoreMcam", "mainCondition")
+
+# For classifier without texture (overall) 
+analyzeResults2(metricsClean.Classified.MCAM.Final %>% 
+                  dplyr::mutate(mainCondition = str_remove(Condition, "_Stain.*")) %>%
+                  merge(manualTrainTest %>% filter(is.na(Segmentation)) %>% 
+                          dplyr::select(ManualScoreMcam, ConfidenceMcam, Object), by = "Object") %>%
+                  filter(!Object %in% mcamModel2_85.All[["trainingSets"]][["Two"]]) %>%
+                  dplyr::mutate(All = "All"),
+               "comboGbmExtraTwo_MCAM2",
+               "ManualScoreMcam", "All")
 ```
 
 MSN accuracy
@@ -2467,12 +2496,12 @@ sum(duplicated(suppTemp$Object))
 identical(suppTemp %>% dplyr::select(colnames(metricsClean.Classified.MCAM.Final)), metricsClean.Classified.MCAM.Final)
 
 # Rearrange order of columns and merge with copolarization data
-suppFeatures <- read.csv(paste(dirPath, "Input/SupplementalFeatures.csv", sep = ""))
+suppFeatures <- read.csv(paste(dirPath, "CrisprAnalysisInR/Input/SupplementalFeatures.csv", sep = ""))
 
 supp <- suppTemp %>%
   dplyr::mutate(Stain = str_remove(Condition, ".*Stain")) %>%
   merge(copolarMcamLabeled %>% dplyr::select(Object, copolarOther, copolarFactin, copolarTriple), all.x = T, all.y = T, by = "Object") %>%
-  merge(manualTrainUpdated %>% filter(is.na(Segmentation)) %>% dplyr::select(ManualScoreMcam, ManualScoreOther, Object), all.x = T, all.y = T, by = "Object") %>%
+  merge(manualTrainUpdated %>% filter(is.na(Segmentation)) %>% dplyr::select(ManualScoreMcam, ManualScoreOther, WrongObject, Object), all.x = T, all.y = T, by = "Object") %>%
   dplyr::mutate(ColocalizationPlot = ifelse(Object %in% colocMetricsNaive$Object, "Yes", "No")) %>%
   dplyr::select(all_of(suppFeatures$Feature)) %>%
   dplyr::rename(MCAM_Classification = comboGbmExtraTwo_MCAM2,
@@ -2511,5 +2540,39 @@ setdiff(suppScaled.Other$Object, suppScaled.MCAM$Object[!str_detect(suppScaled.M
 
 write_csv(suppScaled.MCAM, paste(dirPath, "Output/SupplementalData_NaiveCrispr_Scaled_MCAM.csv", sep = ""))
 write_csv(suppScaled.Other, paste(dirPath, "Output/SupplementalData_NaiveCrispr_Scaled_ERM.csv", sep = ""))
+```
+Percentage of cells with "OneEnd" classification where brightest object is not at the polarized region:
+```{r}
+manualTrainUpdated %>%
+  filter(is.na(Segmentation)) %>%
+  filter(ManualScoreMcam == "OneEnd") %>%
+  dplyr::mutate(mainCondition = str_remove(Condition, "_Stain.*")) %>%
+    group_by(mainCondition) %>% 
+  count(WrongObject) %>%
+  dplyr::mutate(perc = n/sum(n)*100, nTot = sum(n)) %>%
+  dplyr::mutate(CorrectObject = 100- perc) %>%
+  ungroup()
+
+manualTrainUpdated %>%
+  filter(is.na(Segmentation)) %>%
+  filter(ManualScoreMcam == "OneEnd") %>%
+  count(WrongObject) %>%
+  dplyr::mutate(perc = n/sum(n)*100, nTot = sum(n)) %>%
+  dplyr::mutate(CorrectObject = 100- perc)
+```
+Percentage of cells with "BothEnds"
+```{r}
+manualTrainUpdated %>%
+  filter(is.na(Segmentation)) %>%
+  count(ManualScoreMcam) %>%
+  dplyr::mutate(perc = n/sum(n)*100)
+
+manualTrainUpdated %>%
+  filter(is.na(Segmentation)) %>%
+  dplyr::mutate(mainCondition = str_remove(Condition, "_Stain.*")) %>%
+    group_by(mainCondition) %>% 
+  count(ManualScoreMcam) %>%
+  dplyr::mutate(perc = n/sum(n)*100) %>%
+  ungroup()
 ```
 
