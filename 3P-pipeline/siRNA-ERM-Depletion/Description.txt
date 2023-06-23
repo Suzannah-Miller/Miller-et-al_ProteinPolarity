@@ -1,1 +1,14 @@
+These .Rmd notebooks contain the code for machine learning classification of
+the siRNA depletion experiments reported in Figure 6 and Supplemental Figures S6D, S7, and S8.
 
+"siRNA_MachineLearning.Rmd" - code for classifier training and compilation of data for manual 
+co-polarization analysis.
+
+"Sensitivity-Specificity-FeatureSelection.Rmd" - applies classifier from previous notebook and
+saves classified feature data, including the supplemental data tables. 
+Evaluates sensitivity and specificity for iterative classifier training. Measures
+feature importance and generates violin plots of important features as well as boxplots of
+Haralick texture features.
+
+"Percent-Polarized-Cells_Figures.Rmd" - Loads the saved output from the previous notebook and quantifies 
+the percent of polarized and co-polarized cells, make bar graphs, and do statistics.
