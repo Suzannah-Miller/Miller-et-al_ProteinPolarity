@@ -17,7 +17,7 @@ library(FSA)
 
 Directory path:
 ```{r}
-dirPath <- "/Volumes/ahngrp/Suzannah_Thesis_Paper/ERM_Knockdown/"
+dirPath <- "/Your/Directory/Path/"
 ```
 
 Load data:
