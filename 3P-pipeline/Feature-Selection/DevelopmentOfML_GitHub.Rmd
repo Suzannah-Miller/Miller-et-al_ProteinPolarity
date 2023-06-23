@@ -558,7 +558,7 @@ Scaling of features for ML:
 # 
 # # Generates channel-specific feature names
 # normAreaFeatures.MCAM <- normAreaFeaturesChannel(normAreaFeatures, "MCAM")
-# write.csv(normAreaFeatures.MCAM, paste(dirPath, "Analysis/Paper/Test/normAreaFeatures_MCAM.csv", sep = ""), row.names = F)
+# write.csv(normAreaFeatures.MCAM, paste(dirPath, "Analysis/Paper/InputForGitHub/normAreaFeatures_MCAM.csv", sep = ""), row.names = F)
 # 
 # # Calculate the median value for area features in the control condition
 # medianAreas.MCAM <- controlMedianAreas(metricsClean1.V1, normAreaFeatures.MCAM, manual1 %>% filter(is.na(Segmentation)))
