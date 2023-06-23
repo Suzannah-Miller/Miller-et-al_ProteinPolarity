@@ -1,1 +1,5 @@
+This folder contains the code and input data for manual feature selection, 
+where features were compared across replicates using boxplots and highly correlated
+features were removed.
 
+It corresponds to Supplemental Figure 6A-C.
