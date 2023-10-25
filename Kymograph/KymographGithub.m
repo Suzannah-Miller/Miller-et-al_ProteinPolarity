@@ -214,7 +214,7 @@ subplot(1,2,2)
 imshowpair(imrotate(imadjust(movCh2(:,:,frames(1)), scaleCh2+bgCh2), angle), lineRotated)
 
 % Save kymographs and background-subtracted movies
-cd('/Users/suzannah/Library/CloudStorage/OneDrive-UCB-O365/AhnLabResearch/Experiments/MovieAnalysis/Kymographs/Figures/Paper/')
+cd('/.../MovieAnalysis/Kymographs/Figures/Paper/')
 
 % % False-colored with pink colormap
 map = colormap(pink(256)); % For quantification of polarization phenotypes, colormap(jet(256)) was used.
@@ -227,7 +227,7 @@ map = colormap(pink(256)); % For quantification of polarization phenotypes, colo
 % imwrite(uint8(kymoShowCh2*255), [linename, '_kymoCh2_grey_lowerC.tif'], 'Compression', 'none')
 % imwrite(uint8(kymoShowCh3*255), [linename, '_kymoCh3_grey_lowerC.tif'], 'Compression', 'none')
 
-cd('/Users/suzannah/Library/CloudStorage/OneDrive-UCB-O365/AhnLabResearch/Experiments/MovieAnalysis/Kymographs/Figures/Paper/')
+cd('/.../MovieAnalysis/Kymographs/Figures/Paper/')
 map = colormap(pink(256));
 for f = frames
     % Background-subtracted movie (false colored)
