@@ -1,0 +1,667 @@
+---
+title: "ML Feature Selection and Classifier Testing with caretEnsemble"
+output: html_notebook
+---
+This notebook contains the code used to facilitate feature selection during optimization of the machine learning pipeline. 
+It plots the features, correlation plots of the features, and calculates Fisher scores. 
+
+The first few chunks of this notebook after the Functions chunk show how the input data from Matlab and CellProfiler was combined, cleaned, and scaled. 
+Rather than including all input files, the cleaned data has been saved and included in this repository, and can be loaded by the user in the following chunk and used to 
+run the rest of the notebook. The code used to generate the cleaned data has been commented out so it does not produce an error.
+There may be small rounding errors compared to when this code was run with the raw input files. 
+
+Load packages:
+```{r}
+options(java.parameters = "-Xmx8g")
+library(readxl)
+library(tidyverse)
+library(caret)
+library(gridExtra)
+library(corrplot)
+options(rgl.useNULL=TRUE)
+library(rgl)
+library(Rdimtools)
+library(gbm)
+library(extraTrees)
+library(svglite)
+```
+
+Functions:
+```{r}
+# This function accepts Matlab output for 2- or 3-channel experiments, and combines them into one data.frame, appending the variable names of the channel specific measurements with the channel name provided in the input (e.g., the name of the stained protein). For a 3-channel experiment Matlab exports 4 files. The _Cell file contains colocalization metrics and measurements shared by all channels (i.e., Area, Max Feret Diameter, etc.). The other files (_chName) contain channel specific measurements. Provide the full path for the matlab files in the function input.
+# Older version of the function
+importMatlabMulti <- function(matlabCell, matlabChannel1, matlabChannel2, matlabChannel3, annotation, ch1Name, ch2Name, ch3Name){
+  cellMeasRaw <- read.csv(matlabCell)
+  cellMeas <- cellMeasRaw %>%
+    filter(!cell == "")
+  cellMeas <- unique(cellMeas)
+ 
+  ch1 <- unique(cbind(cellMeasRaw %>% dplyr::select(Area, cell), read.csv(matlabChannel1))) %>%
+    filter(!is.na(intensityWrampHalves)) %>%
+    dplyr::rename(meanIntensityNotWramp = meanNotWramp,
+           medianIntensityNotWramp = medianNotWramp,
+           sumIntensityNotWramp = sumNotWramp,
+           meanIntensityNotBright = meanNotBright,
+           sumIntensityNotBright = sumNotBright,
+           medianIntensityNotBright = medianNotBright) %>%
+    dplyr::mutate(meanWrampOverNot = meanIntensityWramp/meanIntensityNotWramp,
+           meanWrampOverNotBright = meanIntensityWramp/meanIntensityNotBright,
+           meanSecondOverNotBright = meanIntensitySecond/meanIntensityNotBright,
+           sumWrampOverNot = sumIntensityWramp/sumIntensityNotWramp,
+           sumWrampOverNotBright = sumIntensityWramp/sumIntensityNotBright,
+           sumSecondOverNotBright = sumIntensitySecond/sumIntensityNotBright,
+           medianWrampOverNot = medianIntensityWramp/medianIntensityNotWramp,
+           medianWrampOverNotBright = medianIntensityWramp/medianIntensityNotBright,
+           medianSecondOverNotBright = medianIntensitySecond/medianIntensityNotBright,
+           sumOverMedianIntensityWramp = sumIntensityWramp/medianIntensityWramp,
+           relAreaWrampCell = areaWramp/Area,
+           relAreaWrampBright = areaWramp/areaBrightObj,
+           massDisplacement = ifelse(massDisplacement < 1, 1, massDisplacement)) %>%
+    dplyr::select(-Area) %>%
+    rename_with(~str_c(.,paste("_", ch1Name, sep = "")), .cols = -contains("cell", ignore.case = F))
+  ch2 <- unique(cbind(read.csv(matlabChannel2), cellMeasRaw %>% dplyr::select(Area, cell))) %>%
+    filter(cell %in% ch1$cell) %>%
+    dplyr::rename(meanIntensityNotWramp = meanNotWramp,
+           medianIntensityNotWramp = medianNotWramp,
+           sumIntensityNotWramp = sumNotWramp,
+           meanIntensityNotBright = meanNotBright,
+           sumIntensityNotBright = sumNotBright,
+           medianIntensityNotBright = medianNotBright) %>%
+    dplyr::mutate(meanWrampOverNot = meanIntensityWramp/meanIntensityNotWramp,
+           meanWrampOverNotBright = meanIntensityWramp/meanIntensityNotBright,
+           meanSecondOverNotBright = meanIntensitySecond/meanIntensityNotBright,
+           sumWrampOverNot = sumIntensityWramp/sumIntensityNotWramp,
+           sumWrampOverNotBright = sumIntensityWramp/sumIntensityNotBright,
+           sumSecondOverNotBright = sumIntensitySecond/sumIntensityNotBright,
+           medianWrampOverNot = medianIntensityWramp/medianIntensityNotWramp,
+           medianWrampOverNotBright = medianIntensityWramp/medianIntensityNotBright,
+           medianSecondOverNotBright = medianIntensitySecond/medianIntensityNotBright,
+           sumOverMedianIntensityWramp = sumIntensityWramp/medianIntensityWramp,
+           relAreaWrampCell = areaWramp/Area,
+           relAreaWrampBright = areaWramp/areaBrightObj,
+           massDisplacement = ifelse(massDisplacement < 1, 1, massDisplacement)) %>%
+        dplyr::select(-Area) %>%
+    rename_with(~str_c(.,paste("_", ch2Name, sep = "")), .cols = -contains("cell", ignore.case = F))
+  if(matlabChannel3 != "empty"){
+    ch3 <- unique(cbind(cellMeasRaw %>% dplyr::select(Area, cell), read.csv(matlabChannel3))) %>%
+      filter(cell %in% ch1$cell) %>%
+      dplyr::rename(meanIntensityNotWramp = meanNotWramp,
+             medianIntensityNotWramp = medianNotWramp,
+             sumIntensityNotWramp = sumNotWramp,
+             meanIntensityNotBright = meanNotBright,
+             sumIntensityNotBright = sumNotBright,
+             medianIntensityNotBright = medianNotBright) %>%
+      dplyr::mutate(meanWrampOverNot = meanIntensityWramp/meanIntensityNotWramp,
+             meanWrampOverNotBright = meanIntensityWramp/meanIntensityNotBright,
+             meanSecondOverNotBright = meanIntensitySecond/meanIntensityNotBright,
+             sumWrampOverNot = sumIntensityWramp/sumIntensityNotWramp,
+             sumWrampOverNotBright = sumIntensityWramp/sumIntensityNotBright,
+             sumSecondOverNotBright = sumIntensitySecond/sumIntensityNotBright,
+             medianWrampOverNot = medianIntensityWramp/medianIntensityNotWramp,
+             medianWrampOverNotBright = medianIntensityWramp/medianIntensityNotBright,
+             medianSecondOverNotBright = medianIntensitySecond/medianIntensityNotBright,
+             sumOverMedianIntensityWramp = sumIntensityWramp/medianIntensityWramp,
+             relAreaWrampCell = areaWramp/Area,
+             relAreaWrampBright = areaWramp/areaBrightObj,
+             massDisplacement = ifelse(massDisplacement < 1, 1, massDisplacement)) %>%
+      dplyr::select(-Area) %>%
+      rename_with(~str_c(.,paste("_", ch3Name, sep = "")), .cols = -contains("cell", ignore.case = F))
+  }
+ 
+  if(matlabChannel3 != "empty"){
+    matlab <- merge(cellMeas, merge(ch1, merge(ch2, ch3, by = "cell"), by = "cell"), by = "cell")
+  }else{
+    matlab <- merge(cellMeas, merge(ch1, ch2, by = "cell"), by = "cell")
+  }
+  matlab <- matlab %>%
+    separate(cell, into = c("Image", "ObjectNumber"), sep = "Cell_", convert = TRUE) %>%
+    dplyr::select(-Image) %>%
+    dplyr::rename(Image = image) %>%
+    unite(Object, c("Image","ObjectNumber"), remove = FALSE) %>%
+    dplyr::select(-ObjectNumber) %>%
+    arrange(Object)
+   
+ 
+  matlabAnnotated <- merge(annotation, matlab, by = "Image")
+}
+
+# This function reads in output from CellProfiler
+readCp <- function(cpImgPath, cpCellPath){
+  cpImg <-read.csv(cpImgPath)
+  
+  cpCell <- merge(read.csv(cpCellPath), dplyr::select(cpImg, ImageNumber, Image_FileName_ImgMcam), by = "ImageNumber") %>%
+    unite(Object, c(Image_FileName_ImgMcam, ObjectNumber), remove = F) %>%
+    arrange(Object)
+}
+
+# This function combines features measured in matlab and CellProfiler, removes redundant features, calculates CV for Intensity and IntensityEdge from CellProfiler measurements, converts Haralick features into rotation-invariant form (not angularly dependent) by taking the mean and range, and removes small round cells on area and max Feret diameter. CellProfiler subscript (cpSubscript) and matlab channel names (chName) indicating the different channels needed to match the subscripts in the input dataframes.
+combineMetrics <- function(matlab, cpCell, cpSubscript1, cpSubscript2, cpSubscript3, chName1, chName2, chName3){
+  metrics <- merge(matlab, cpCell, by = "Object") %>%
+    dplyr::select(-AreaShape_Orientation, 
+           -contains("Intensity_MedianIntensity_BgSubtracted"), 
+           -contains("Intensity_IntegratedIntensity"),
+           -contains("Intensity_MassDisplacement"),
+           -Number_Object_Number,
+           -AreaShape_MajorAxisLength, 
+           -AreaShape_MinorAxisLength, 
+           -AreaShape_MaxFeretDiameter,
+           -AreaShape_MinFeretDiameter,
+           -AreaShape_Eccentricity,
+           -AreaShape_Area) %>% # Remove identical metrics from matlab and CellProfiler
+    dplyr::select(-OriginalId, -contains("Image_FileName_"),
+           -contains("MaxFeretCoordinates"), -contains("MinFeretCoordinates"), 
+           -contains("Orientation"), -contains("MaxFeretAngle"), -contains("MinFeretAngle"), 
+           -contains("wrampAngle"), -contains("secondAngle"), -contains("majAngle"), 
+           -contains("Center_X"), -contains("Center_Y"), -contains("Center_Z"), -contains("Location_"), 
+           -contains("BoundingBoxM"), -contains("EulerNumber")) # Remove coordinate-based metrics and nonnumeric info. 
+  
+  texturize <- function(cpSubscript, chName){
+    metricsTexture <- metrics %>% 
+      dplyr::select(Object, contains("Texture"), contains("Intensity_StdIntensityEdge"), contains("Intensity_MeanIntensity"), contains("Intensity_StdIntensity")) %>%
+      dplyr::select(Object, contains(cpSubscript)) %>%
+      rename_with(~gsub(cpSubscript, '', .x), .cols = everything()) %>%
+      dplyr::mutate(CV_IntensityEdge = Intensity_StdIntensityEdge/Intensity_MeanIntensityEdge,
+           CV_IntensityCell = Intensity_StdIntensity/Intensity_MeanIntensity) %>%
+      dplyr::select(-Intensity_MeanIntensity, -Intensity_StdIntensity, -Intensity_StdIntensityEdge, -Intensity_MeanIntensityEdge) %>%
+      rowwise() %>%
+      dplyr::mutate(Texture_AngularSecondMoment_2_Mean = mean(c(Texture_AngularSecondMoment_2_00_256, Texture_AngularSecondMoment_2_01_256, Texture_AngularSecondMoment_2_02_256, Texture_AngularSecondMoment_2_03_256)),
+           Texture_AngularSecondMoment_8_Mean = mean(c(Texture_AngularSecondMoment_8_00_256, Texture_AngularSecondMoment_8_01_256, Texture_AngularSecondMoment_8_02_256, Texture_AngularSecondMoment_8_03_256)),
+           Texture_Contrast_2_Mean = mean(c(Texture_Contrast_2_00_256, Texture_Contrast_2_01_256, Texture_Contrast_2_02_256, Texture_Contrast_2_03_256)),
+           Texture_Contrast_8_Mean = mean(c(Texture_Contrast_8_00_256, Texture_Contrast_8_01_256, Texture_Contrast_8_02_256, Texture_Contrast_8_03_256)),
+           Texture_Correlation_2_Mean = mean(c(Texture_Correlation_2_00_256, Texture_Correlation_2_01_256, Texture_Correlation_2_02_256, Texture_Correlation_2_03_256)),
+           Texture_Correlation_8_Mean = mean(c(Texture_Correlation_8_00_256, Texture_Correlation_8_01_256, Texture_Correlation_8_02_256, Texture_Correlation_8_03_256)),
+           Texture_DifferenceEntropy_2_Mean = mean(c(Texture_DifferenceEntropy_2_00_256, Texture_DifferenceEntropy_2_01_256, Texture_DifferenceEntropy_2_02_256, Texture_DifferenceEntropy_2_03_256)),
+           Texture_DifferenceEntropy_8_Mean = mean(c(Texture_DifferenceEntropy_8_00_256, Texture_DifferenceEntropy_8_01_256, Texture_DifferenceEntropy_8_02_256, Texture_DifferenceEntropy_8_03_256)),
+           Texture_DifferenceVariance_2_Mean = mean(c(Texture_DifferenceVariance_2_00_256, Texture_DifferenceVariance_2_01_256, Texture_DifferenceVariance_2_02_256, Texture_DifferenceVariance_2_03_256)),
+           Texture_DifferenceVariance_8_Mean = mean(c(Texture_DifferenceVariance_8_00_256, Texture_DifferenceVariance_8_01_256, Texture_DifferenceVariance_8_02_256, Texture_DifferenceVariance_8_03_256)),
+           Texture_Entropy_2_Mean = mean(c(Texture_Entropy_2_00_256, Texture_Entropy_2_01_256, Texture_Entropy_2_02_256, Texture_Entropy_2_03_256)),
+           Texture_Entropy_8_Mean = mean(c(Texture_Entropy_8_00_256, Texture_Entropy_8_01_256, Texture_Entropy_8_02_256, Texture_Entropy_8_03_256)),
+           Texture_InfoMeas1_2_Mean = mean(c(Texture_InfoMeas1_2_00_256, Texture_InfoMeas1_2_01_256, Texture_InfoMeas1_2_02_256, Texture_InfoMeas1_2_03_256)),
+           Texture_InfoMeas1_8_Mean = mean(c(Texture_InfoMeas1_8_00_256, Texture_InfoMeas1_8_01_256, Texture_InfoMeas1_8_02_256, Texture_InfoMeas1_8_03_256)),
+           Texture_InfoMeas2_2_Mean = mean(c(Texture_InfoMeas2_2_00_256, Texture_InfoMeas2_2_01_256, Texture_InfoMeas2_2_02_256, Texture_InfoMeas2_2_03_256)),
+           Texture_InfoMeas2_8_Mean = mean(c(Texture_InfoMeas2_8_00_256, Texture_InfoMeas2_8_01_256, Texture_InfoMeas2_8_02_256, Texture_InfoMeas2_8_03_256)),
+           Texture_InverseDifferenceMoment_2_Mean = mean(c(Texture_InverseDifferenceMoment_2_00_256, Texture_InverseDifferenceMoment_2_01_256, Texture_InverseDifferenceMoment_2_02_256, Texture_InverseDifferenceMoment_2_03_256)),
+           Texture_InverseDifferenceMoment_8_Mean = mean(c(Texture_InverseDifferenceMoment_8_00_256, Texture_InverseDifferenceMoment_8_01_256, Texture_InverseDifferenceMoment_8_02_256, Texture_InverseDifferenceMoment_8_03_256)),
+           Texture_SumAverage_2_Mean = mean(c(Texture_SumAverage_2_00_256, Texture_SumAverage_2_01_256, Texture_SumAverage_2_02_256, Texture_SumAverage_2_03_256)),
+           Texture_SumAverage_8_Mean = mean(c(Texture_SumAverage_8_00_256, Texture_SumAverage_8_01_256, Texture_SumAverage_8_02_256, Texture_SumAverage_8_03_256)),
+           Texture_SumEntropy_2_Mean = mean(c(Texture_SumEntropy_2_00_256, Texture_SumEntropy_2_01_256, Texture_SumEntropy_2_02_256, Texture_SumEntropy_2_03_256)),
+           Texture_SumEntropy_8_Mean = mean(c(Texture_SumEntropy_8_00_256, Texture_SumEntropy_8_01_256, Texture_SumEntropy_8_02_256, Texture_SumEntropy_8_03_256)),
+           Texture_SumVariance_2_Mean = mean(c(Texture_SumVariance_2_00_256, Texture_SumVariance_2_01_256, Texture_SumVariance_2_02_256, Texture_SumVariance_2_03_256)),
+           Texture_SumVariance_8_Mean = mean(c(Texture_SumVariance_8_00_256, Texture_SumVariance_8_01_256, Texture_SumVariance_8_02_256, Texture_SumVariance_8_03_256)),
+           Texture_Variance_2_Mean = mean(c(Texture_Variance_2_00_256, Texture_Variance_2_01_256, Texture_Variance_2_02_256, Texture_Variance_2_03_256)),
+           Texture_Variance_8_Mean = mean(c(Texture_Variance_8_00_256, Texture_Variance_8_01_256, Texture_Variance_8_02_256, Texture_Variance_8_03_256)),
+           Texture_AngularSecondMoment_2_Range = diff(range(c(Texture_AngularSecondMoment_2_00_256, Texture_AngularSecondMoment_2_01_256, Texture_AngularSecondMoment_2_02_256, Texture_AngularSecondMoment_2_03_256))),
+           Texture_AngularSecondMoment_8_Range = diff(range(c(Texture_AngularSecondMoment_8_00_256, Texture_AngularSecondMoment_8_01_256, Texture_AngularSecondMoment_8_02_256, Texture_AngularSecondMoment_8_03_256))),
+           Texture_Contrast_2_Range = diff(range(c(Texture_Contrast_2_00_256, Texture_Contrast_2_01_256, Texture_Contrast_2_02_256, Texture_Contrast_2_03_256))),
+           Texture_Contrast_8_Range = diff(range(c(Texture_Contrast_8_00_256, Texture_Contrast_8_01_256, Texture_Contrast_8_02_256, Texture_Contrast_8_03_256))),
+           Texture_Correlation_2_Range = diff(range(c(Texture_Correlation_2_00_256, Texture_Correlation_2_01_256, Texture_Correlation_2_02_256, Texture_Correlation_2_03_256))),
+           Texture_Correlation_8_Range = diff(range(c(Texture_Correlation_8_00_256, Texture_Correlation_8_01_256, Texture_Correlation_8_02_256, Texture_Correlation_8_03_256))),
+           Texture_DifferenceEntropy_2_Range = diff(range(c(Texture_DifferenceEntropy_2_00_256, Texture_DifferenceEntropy_2_01_256, Texture_DifferenceEntropy_2_02_256, Texture_DifferenceEntropy_2_03_256))),
+           Texture_DifferenceEntropy_8_Range = diff(range(c(Texture_DifferenceEntropy_8_00_256, Texture_DifferenceEntropy_8_01_256, Texture_DifferenceEntropy_8_02_256, Texture_DifferenceEntropy_8_03_256))),
+           Texture_DifferenceVariance_2_Range = diff(range(c(Texture_DifferenceVariance_2_00_256, Texture_DifferenceVariance_2_01_256, Texture_DifferenceVariance_2_02_256, Texture_DifferenceVariance_2_03_256))),
+           Texture_DifferenceVariance_8_Range = diff(range(c(Texture_DifferenceVariance_8_00_256, Texture_DifferenceVariance_8_01_256, Texture_DifferenceVariance_8_02_256, Texture_DifferenceVariance_8_03_256))),
+           Texture_Entropy_2_Range = diff(range(c(Texture_Entropy_2_00_256, Texture_Entropy_2_01_256, Texture_Entropy_2_02_256, Texture_Entropy_2_03_256))),
+           Texture_Entropy_8_Range = diff(range(c(Texture_Entropy_8_00_256, Texture_Entropy_8_01_256, Texture_Entropy_8_02_256, Texture_Entropy_8_03_256))),
+           Texture_InfoMeas1_2_Range = diff(range(c(Texture_InfoMeas1_2_00_256, Texture_InfoMeas1_2_01_256, Texture_InfoMeas1_2_02_256, Texture_InfoMeas1_2_03_256))),
+           Texture_InfoMeas1_8_Range = diff(range(c(Texture_InfoMeas1_8_00_256, Texture_InfoMeas1_8_01_256, Texture_InfoMeas1_8_02_256, Texture_InfoMeas1_8_03_256))),
+           Texture_InfoMeas2_2_Range = diff(range(c(Texture_InfoMeas2_2_00_256, Texture_InfoMeas2_2_01_256, Texture_InfoMeas2_2_02_256, Texture_InfoMeas2_2_03_256))),
+           Texture_InfoMeas2_8_Range = diff(range(c(Texture_InfoMeas2_8_00_256, Texture_InfoMeas2_8_01_256, Texture_InfoMeas2_8_02_256, Texture_InfoMeas2_8_03_256))),
+           Texture_InverseDifferenceMoment_2_Range = diff(range(c(Texture_InverseDifferenceMoment_2_00_256, Texture_InverseDifferenceMoment_2_01_256, Texture_InverseDifferenceMoment_2_02_256, Texture_InverseDifferenceMoment_2_03_256))),
+           Texture_InverseDifferenceMoment_8_Range = diff(range(c(Texture_InverseDifferenceMoment_8_00_256, Texture_InverseDifferenceMoment_8_01_256, Texture_InverseDifferenceMoment_8_02_256, Texture_InverseDifferenceMoment_8_03_256))),
+           Texture_SumAverage_2_Range = diff(range(c(Texture_SumAverage_2_00_256, Texture_SumAverage_2_01_256, Texture_SumAverage_2_02_256, Texture_SumAverage_2_03_256))),
+           Texture_SumAverage_8_Range = diff(range(c(Texture_SumAverage_8_00_256, Texture_SumAverage_8_01_256, Texture_SumAverage_8_02_256, Texture_SumAverage_8_03_256))),
+           Texture_SumEntropy_2_Range = diff(range(c(Texture_SumEntropy_2_00_256, Texture_SumEntropy_2_01_256, Texture_SumEntropy_2_02_256, Texture_SumEntropy_2_03_256))),
+           Texture_SumEntropy_8_Range = diff(range(c(Texture_SumEntropy_8_00_256, Texture_SumEntropy_8_01_256, Texture_SumEntropy_8_02_256, Texture_SumEntropy_8_03_256))),
+           Texture_SumVariance_2_Range = diff(range(c(Texture_SumVariance_2_00_256, Texture_SumVariance_2_01_256, Texture_SumVariance_2_02_256, Texture_SumVariance_2_03_256))),
+           Texture_SumVariance_8_Range = diff(range(c(Texture_SumVariance_8_00_256, Texture_SumVariance_8_01_256, Texture_SumVariance_8_02_256, Texture_SumVariance_8_03_256))),
+           Texture_Variance_2_Range = diff(range(c(Texture_Variance_2_00_256, Texture_Variance_2_01_256, Texture_Variance_2_02_256, Texture_Variance_2_03_256))),
+           Texture_Variance_8_Range = diff(range(c(Texture_Variance_8_00_256, Texture_Variance_8_01_256, Texture_Variance_8_02_256, Texture_Variance_8_03_256)))) 
+    metricsTexture <- metricsTexture %>%
+      ungroup() %>%
+      rename_with(~str_c(., paste("_", chName, sep = "")), .cols = everything()) %>%
+      dplyr::select(-contains("_256"))
+  }
+  metricsTexture1 <- texturize(cpSubscript1, chName1)
+  metricsTexture2 <- texturize(cpSubscript2, chName2)
+  if(chName3 != "empty"){metricsTexture3 <- texturize(cpSubscript3, chName3)}
+  
+  metrics2 <- merge(metrics %>% dplyr::select(-contains("Texture")), metricsTexture1, by.x = "Object", by.y = paste("Object_", chName1, sep = ""))
+  metrics3 <- merge(metrics2, metricsTexture2, by.x = "Object", by.y = paste("Object_", chName2, sep = ""))
+  if(chName3 != "empty"){
+    metrics4 <- merge(metrics3, metricsTexture3, by.x = "Object", by.y = paste("Object_", chName3, sep = ""))
+    metricsAll <- metrics4
+  }else{
+    metricsAll <- metrics3
+  }
+  
+  metricsAll <- metricsAll %>%
+      dplyr::select(-contains("Intensity_MeanIntensity_"))
+  
+  tooSmall <- c(metricsAll %>% filter(Area < 17000 | MaxFeretDiameter < 350) %>% dplyr::select(Object), metrics2 %>% filter(MaxFeretDiameter < 400, Area < 34000) %>% dplyr::select(Object))
+  metricsClean <- metricsAll %>%
+   filter(!Object %in% tooSmall[[1]], !Object %in% tooSmall[[2]])
+}
+
+# Function to rename normAreaFeatures to be specific to a certain channel's variable names:
+normAreaFeaturesChannel <- function(normAreaFeatures, chName){
+  chInvariantFeatures <- c("Area", "MajorAxisLength", "MinorAxisLength",  "Eccentricity", "MaxFeretDiameter", "MinFeretDiameter", "AreaShape_BoundingBoxArea", "AreaShape_ConvexArea", "AreaShape_EquivalentDiameter", "AreaShape_MaximumRadius", "AreaShape_MeanRadius", "AreaShape_MedianRadius", "AreaShape_Perimeter")
+
+  normAreaChFeatures <- setdiff(normAreaFeatures, chInvariantFeatures) %>%
+    str_c(., paste("_", chName, sep = ""))
+  features <- c(chInvariantFeatures, normAreaChFeatures)
+}
+
+# Function to calculate the median of each area feature across the control condition of cells in the training experiment
+controlMedianAreas <- function(metricsClean, normAreaFeatures, manual){
+  medianAreas <- metricsClean %>%
+    filter(Object %in% manual$Object) %>% # Remove incorrectly segmented (not a single cell) objects
+    dplyr::select(all_of(normAreaFeatures), "Normalization") %>%
+    filter(Normalization == "Control") %>%
+    group_by(Normalization) %>%
+    summarize_all(median, na.rm = T) %>%
+    ungroup() %>%
+    dplyr::select(-Normalization)
+} 
+
+
+# This function scales area-based features by dividing by the median value of cells in the training experiment (control-condition only). It also normalizes intensity values (to account for variability between conditions and experiments collected on different days) by providing values in relative terms (dividing measurements by the mean or integrated intensity of the cell). It is intended for use on V1 features. Features that are already expressed as a proportion or a [0 1] scale are not changed (e.g., profile measurement, relative area, wrampHalves, brightPix, etc.).
+scaleAreaIntensity <- function(metrics, normAreaFeatures, controlMedian, colocFeatures, chName, cpSubscript){
+  areaMetrics <- dplyr::select(metrics, all_of(normAreaFeatures))
+  scaleArea <- as.data.frame(mapply('/', areaMetrics, controlMedian)) #%>%
+    #dplyr::mutate_all(log)
+  
+  annotFeatures <- c("Object", "Image", "Experiment", "Replicate", "Coverslip", "Condition", "Normalization")
+  normNonArea <- metrics %>%
+    dplyr::select(-all_of(colocFeatures)) %>%
+    dplyr::select(-all_of(normAreaFeatures)) %>%
+    dplyr::select(all_of(annotFeatures), contains(paste("_", chName, sep = "")), contains(cpSubscript)) %>%
+    rename_with(~gsub(cpSubscript, '', .x), .cols = contains(cpSubscript)) %>%
+    rename_with(~gsub(paste("_", chName, sep = ""), '', .x), .cols = contains(paste("_", chName, sep = ""))) %>%
+    dplyr::select(-largeObj, -brightMeanObj, -brightSumObj) %>%
+    dplyr::mutate(angleWramp2Major = angleWramp2Major/90,
+           angleSecond2Major = angleSecond2Major/90,
+           angleWramp2Second = angleWramp2Second/180,
+           intensityWrampHalves = log(intensityWrampHalves),
+           intensityMajorHalves = log(intensityMajorHalves),
+           intensitySecondHalves = log(intensitySecondHalves),
+           medianObjectMeanIntensity = medianObjectMeanIntensity/meanIntensityCell, # Fixed
+           medianObjectSumIntensity = medianObjectSumIntensity/sumIntensityCell,   # Fixed
+           meanIntensityWramp = meanIntensityWramp/meanIntensityCell,
+           medianIntensityWramp = medianIntensityWramp/medianIntensityCell,
+           meanIntensityBrightObj = meanIntensityBrightObj/meanIntensityCell,
+           sumIntensityBrightObj = sumIntensityBrightObj/sumIntensityCell,
+           sumIntensityWramp = sumIntensityWramp/sumIntensityCell,
+           sumIntensityNotWramp = sumIntensityNotWramp/sumIntensityCell, 
+           sumIntensityNotBright = sumIntensityNotBright/sumIntensityCell, 
+           sumIntensitySecond = sumIntensitySecond/sumIntensityCell,
+           meanIntensityNotWramp = meanIntensityNotWramp/meanIntensityCell,
+           medianIntensityNotWramp = medianIntensityNotWramp/medianIntensityCell,
+           meanIntensityNotBright = meanIntensityNotBright/meanIntensityCell,
+           medianIntensityNotBright = medianIntensityNotBright/medianIntensityCell,
+           meanIntensitySecond = meanIntensitySecond/meanIntensityCell,
+           medianIntensitySecond = medianIntensitySecond/medianIntensityCell) %>%
+    dplyr::mutate(Intensity_LowerQuartileIntensity = Intensity_LowerQuartileIntensity/meanIntensityCell, 
+                  Intensity_MADIntensity = Intensity_MADIntensity/meanIntensityCell,
+                  Intensity_MaxIntensityEdge = Intensity_MaxIntensityEdge/meanIntensityCell,
+                  Intensity_MaxIntensity = Intensity_MaxIntensity/meanIntensityCell,
+                  Intensity_MeanIntensityEdge = Intensity_MeanIntensityEdge/meanIntensityCell,
+                  Intensity_MinIntensityEdge = Intensity_MinIntensityEdge/meanIntensityCell,
+                  Intensity_MinIntensity = Intensity_MinIntensity/meanIntensityCell,
+                  Intensity_UpperQuartileIntensity = Intensity_UpperQuartileIntensity/meanIntensityCell) %>%
+    dplyr::select(-meanIntensityCell, -medianIntensityCell, -sumIntensityCell, -Intensity_StdIntensityEdge, -Intensity_StdIntensity, 
+           -contains("MeanFrac_")) %>%
+    rename_with(~str_c(., paste("_", chName, sep = "")), .cols = -contains(annotFeatures))
+  
+  normMetrics <- cbind(normNonArea, scaleArea)
+}
+
+# Confusion matrix of ML classification (prediction) vs. manual scoring (reference)
+# Supply fit from caret to function
+analyzeResults <- function(dataset, fit, score, conditionName){
+  dataset <- dplyr::select(dataset, -Normalization) %>%
+    rename(refScore = score,
+           useCondition = conditionName)
+  Prediction <- predict(fit, dataset)
+  Reference <- dataset$refScore
+  Condition <- dataset$useCondition
+  Confidence <- dplyr::select(dataset, contains("Confidence"))
+  if(length(unique(dataset$refScore)) == 2){
+    confusData <- data.frame(Prediction, Reference, Condition, Confidence) %>%
+      mutate(Prediction = factor(Prediction, levels = c("OneEnd", "None")),
+             Reference = factor(Reference, levels = c("OneEnd", "None")))
+  }else{
+    confusData <- data.frame(as.character(Prediction), as.character(Reference), Condition, Confidence) %>%
+      mutate(Prediction = factor(Prediction, levels = c("OneEnd", "BothEnds", "None")),
+             Reference = factor(Reference, levels = c("OneEnd", "BothEnds", "None")))
+  }
+  
+  conditions <- unique(confusData$Condition)
+  for(val in 1:length(conditions)){
+    print(conditions[val])
+    print(caret::confusionMatrix(confusData$Prediction[confusData$Condition == conditions[val]],
+                      confusData$Reference[confusData$Condition == conditions[val]]))
+    print("High Confidence")
+    print(caret::confusionMatrix(confusData$Prediction[confusData$Condition == conditions[val] & confusData$Confidence !=2],
+                      confusData$Reference[confusData$Condition == conditions[val] & confusData$Confidence != 2]))
+  }
+  
+  ggplot(confusData, aes(x = Condition)) + geom_bar(aes(fill = Prediction), position = position_fill(reverse = T))
+}
+
+
+plots2scale <- function(featureNames, data1, data2, chName, savePath){
+  features <- str_replace(featureNames, "MCAM", chName)
+  for(val in 1:length(features)){
+    if(any(colnames(data1) == features[val])){
+      p1 <- ggplot(data1 %>% rename(feature = features[val])) +
+        geom_jitter(aes(x=Coverslip, y = feature, color = Experiment), height = 0, alpha = 0.4, size = 0.5) +
+        geom_boxplot(aes(x=Coverslip, y = feature, fill = Experiment), alpha = 0, outlier.size = .5) +
+        ggtitle(features[val])+
+        theme_classic() +
+        theme(text = element_text(size = 8)) +
+        theme(axis.text.x= element_text(size = 6, angle = 90, hjust = 1))
+    }else{
+      p1 <- ggplot()
+    }
+  
+    if(any(colnames(data2) == features[val])){
+      p2 <- ggplot(data2 %>% rename(feature = features[val])) +
+        geom_jitter(aes(x=Coverslip, y = feature, color = Experiment), height = 0, alpha = 0.4, size = 0.5) +
+        geom_boxplot(aes(x=Coverslip, y = feature, fill = Experiment), alpha = 0, outlier.size = .5) +
+        ggtitle(features[val])+
+        theme_classic() +
+        theme(text = element_text(size = 8)) +
+        theme(axis.text.x= element_text(size = 6, angle = 90, hjust = 1))
+    }else{
+      p2 <- ggplot()
+    }
+  
+    p <- grid.arrange(p1, p2, nrow = 1)
+    ggsave(paste(savePath, features[val], "_2Scales.png", sep = ""), p, width = 14, height = 5, dpi = 600)
+    
+  }
+}
+
+plots1scale <- function(featureNames, data, chName, savePath){
+  features <- str_replace(featureNames, "MCAM", chName)
+  for(val in 1:length(features)){
+  p <- ggplot(data %>% rename(feature = features[val])) +
+    geom_jitter(aes(x=Coverslip, y = feature, color = Experiment), height = 0, alpha = 0.4, size = 0.5) +
+    geom_boxplot(aes(x=Coverslip, y = feature, fill = Experiment), alpha = 0, outlier.size = .5) +
+    ggtitle(features[val])+
+    theme_classic() +
+    theme(text = element_text(size = 13)) +
+    theme(axis.text.x= element_text(size = 6, angle = 90, hjust = 1))
+ 
+  ggsave(paste(savePath, features[val], ".png", sep = ""), p, width = 7.5, height = 5, dpi = 600)
+ 
+  }
+}
+
+featureSelect <- function(featureNames, data, manual, scoreName, chName){
+  features <- str_replace(featureNames, "MCAM", chName)
+  manual <- manual %>% rename(score = scoreName)
+  correl <- cor(data %>% filter(Normalization == "Control") %>% dplyr::select(any_of(features)))
+  paste(corrplot(correl, method = "circle", tl.cex = 0.6))
+  
+  labeled <- data %>% filter(Normalization == "Control") %>% dplyr::select(any_of(features), Object) %>%
+    merge(manual %>% dplyr::select(score, Object), by = "Object")
+  f <- do.fscore(as.matrix(labeled %>% dplyr::select(-Object, -score)), labeled$score, ndim = length(colnames(labeled %>% dplyr::select(-Object, -score))))
+  colnames(labeled %>% dplyr::select(-Object, -score))[f[["featidx"]]]
+}
+
+# Wrapper function to fit two models and generate a combined classification where both classifiers must agree on one-ended WRAMP structures (reduces false positives at the cost of sensitivity). Classes are added to the metricsClean dataframe.
+classifyCleanMetricsCombinedModels <- function(metricsCleaned, metricsScaled, fit1, fit2, columnName){
+  metricsCleaned <- arrange(metricsCleaned, Object)
+  metricsScaled <- arrange(metricsScaled, Object)
+  metricsCleaned$prediction1 <- predict(fit1, metricsScaled)
+  metricsCleaned$prediction2 <- predict(fit2, metricsScaled)
+  metricsCleaned <- metricsCleaned %>%
+    dplyr::mutate(prediction1 = as.character(prediction1), prediction2 = as.character(prediction2)) %>%
+    dplyr::mutate(combo = ifelse((prediction1 == "OneEnd" & prediction2 != "OneEnd"), "None", prediction1)) %>%
+    dplyr::mutate_at(c("prediction1", "prediction2", "combo"), function(x){factor(x, levels = c("OneEnd", "BothEnds", "None"))}) %>%
+    dplyr::select(-prediction1, -prediction2) %>%
+    dplyr::rename_with(~ gsub("combo", columnName, .x), .cols = "combo")
+}
+
+# Alternate function for generating confusion matrix. Add ML classification as a variable to the dataset before inputting to function. Provide names of both variables to compare (e.g., ML classification and manual score)
+analyzeResults2 <- function(dataset, className, score, conditionName){
+  dataset <- dplyr::select(dataset, -Normalization) %>%
+    dplyr::rename(Prediction = className,
+                  refScore = score,
+                  useCondition = conditionName)
+  Prediction <- dataset$Prediction
+  Reference <- dataset$refScore
+  Condition <- dataset$useCondition
+  Confidence <- dplyr::select(dataset, contains("Confidence"))
+  if(length(unique(dataset$ManualScoreMcam)) == 2){
+    confusData <- data.frame(Prediction, Reference, Condition, Confidence) %>%
+      dplyr::mutate(Prediction = factor(Prediction, levels = c("OneEnd", "None")),
+             Reference = factor(Reference, levels = c("OneEnd", "None")))
+  }else{
+    confusData <- data.frame(as.character(Prediction), as.character(Reference), Condition, Confidence) %>%
+      dplyr::mutate(Prediction = factor(Prediction, levels = c("OneEnd", "BothEnds", "None")),
+             Reference = factor(Reference, levels = c("OneEnd", "BothEnds", "None")))
+  }
+  
+  conditions <- unique(confusData$Condition)
+  for(val in 1:length(conditions)){
+    print(conditions[val])
+    print(caret::confusionMatrix(confusData$Prediction[confusData$Condition == conditions[val]],
+                      confusData$Reference[confusData$Condition == conditions[val]]))
+    print("High Confidence")
+    print(caret::confusionMatrix(confusData$Prediction[confusData$Condition == conditions[val] & confusData$Confidence !=2],
+                      confusData$Reference[confusData$Condition == conditions[val] & confusData$Confidence != 2]))
+  }
+  
+  ggplot(confusData, aes(x = Condition)) + geom_bar(aes(fill = Prediction), position = position_fill(reverse = T))
+}
+```
+
+Path to main directory:
+```{r}
+dirPath <- "/Volumes/ahngrp/Suzannah_Thesis_Paper/QuantitativeImageAnalysisPipeline/"
+```
+
+Manual Scoring Results. Note that all of the cells in the first three experiments were manually scored ("manual1"), while "manual 4" is scoring of a subset of cells from experiments 4-6.
+```{r}
+# lvl = c("OneEnd", "BothEnds", "None")
+# manual1 <- read.csv(paste(dirPath, "Analysis/DataForTrainingClassifier/MCAM-Myosin-Factin-ROCKi/Analysis/ManualScoring/ManualScoringCleanUpdated0307.csv", sep= "")) %>% dplyr::select(-X) %>%
+#   dplyr::mutate(Image = str_replace(Object, "nd2_.*", "nd2")) %>%
+#   filter(is.na(Segmentation)) %>%
+#   dplyr::mutate(ManualScoreMcam = factor(ManualScoreMcam, levels = lvl),
+#       ManualScoreFactin = factor(ManualScoreFactin, levels = lvl), 
+#       ManualScoreOther = factor(ManualScoreOther, levels = lvl))  %>%
+#   dplyr::mutate_at(c("ConfidenceMcam", "ConfidenceFactin", "ConfidenceOther"), factor) 
+# 
+# manual4 <- read.csv(paste(dirPath, "Analysis/DataForTrainingClassifier/CopiedFromCopolarizationAndColocalizationOfERM/MLValidationClean.csv", sep = "")) %>%
+#   dplyr::mutate(ManualScoreMcam = factor(ManualScoreMcam, levels = lvl),
+#       ManualScoreFactin = factor(ManualScoreFactin, levels = lvl), 
+#       ManualScoreOther = factor(ManualScoreOther, levels = lvl)) %>%
+#   dplyr::mutate_at(c("ConfidenceMcam", "ConfidenceFactin", "ConfidenceOther"), factor) 
+# 
+# # Combine manual scoring
+# manualComb <- rbind(dplyr::select(manual1, Object,contains("Manual"), contains("Confidence"), Segmentation, WrongObject),
+#                     dplyr::select(manual4, Object,contains("Manual"), contains("Confidence"), Segmentation, WrongObject)) %>%
+#   filter(is.na(Segmentation)) %>%
+#   dplyr::select(-contains("Factin"), -contains("Other"))
+# 
+# write_csv(manualComb, paste(dirPath, "Analysis/Paper/InputForGitHub/combinedManualScoring.csv", sep = ""))
+```
+
+Annotation files are loaded here. These are created by the user and indicate what replicate, condition, and experiment each image belongs to. The annotation file also indicates which images should be used to calculate the median values used to scale area and distance features (Normalization == "Control").
+```{r}
+# annotation1 <- read_excel(paste(dirPath, "Analysis/DataForTrainingClassifier/MCAM-Myosin-Factin-ROCKi/AnnotationV2.xlsx", sep = "")) # Experiments 1-3
+# annotation4temp <- read.csv(paste(dirPath, "Analysis/DataForTrainingClassifier/CopiedFromCopolarizationAndColocalizationOfERM/20211127_ROCKi_Annotation.csv", sep = "")) # Experiments 4-6
+# annotation4 <- annotation4temp %>%
+#   dplyr::mutate(Experiment = factor(Experiment, levels = unique(annotation4temp$Experiment)),
+#          Replicate = factor(Replicate, levels = unique(annotation4temp$Replicate)),
+#          Condition = factor(Condition, levels = c("20211127_Cntr_ROCKi_StainMSN", "20211127_ROCKi_StainMSN",
+#                                                   "20211127_Cntr_ROCKi_StainRDX", "20211127_ROCKi_StainRDX",
+#                                                   "20211127_Cntr_ROCKi_StainEZR", "20211127_ROCKi_StainEZR")),
+#          Coverslip = factor(Coverslip, levels = unique(annotation4temp$Coverslip))) %>% # Preserves order of levels as input .csv
+#   dplyr::mutate(ConditionMcam = str_remove(Condition, "_Stain.*"))
+# 
+# combAnnot <- rbind(annotation1 %>% dplyr::select(Experiment, Coverslip, Condition, Replicate), annotation4 %>% dplyr::select(Experiment, Coverslip, Condition, Replicate)) %>%
+#   dplyr::mutate(mainCondition = ifelse(str_detect(Condition, "Cntr"), "DMSO", "ROCKi")) %>%
+#   dplyr::mutate(repNum = ifelse(str_detect(Replicate, "20211127"), "4", str_remove(Replicate, ".*Rep"))) %>%
+#   unite("mainRep", c(mainCondition,repNum)) %>%
+#   arrange(Experiment)
+# write_csv(combAnnot, paste(dirPath, "Analysis/Paper/InputForGitHub/combinedAnnotationDevelopment.csv", sep = ""))
+```
+
+Matlab results are loaded here. See description in the function.
+```{r}
+# # Data used for training MCAM classifier is the same as 20220207 metrics.
+# matlab1.V1 <- importMatlabMulti(paste(dirPath, "Analysis/DataForTrainingClassifier/MCAM-Myosin-Factin-ROCKi/Analysis/MatlabAnalysis/WrampMetrics/VersionControled/Output/80thPctlNoCloseStats_Cell_20230312.csv", sep = ""), paste(dirPath, "Analysis/DataForTrainingClassifier/MCAM-Myosin-Factin-ROCKi/Analysis/MatlabAnalysis/WrampMetrics/VersionControled/Output/80thPctlNoCloseStats_MCAM_20230312.csv", sep = ""), paste(dirPath, "Analysis/DataForTrainingClassifier/MCAM-Myosin-Factin-ROCKi/Analysis/MatlabAnalysis/WrampMetrics/VersionControled/Output/80thPctlNoCloseStats_Factin_20230312.csv", sep = ""), paste(dirPath, "Analysis/DataForTrainingClassifier/MCAM-Myosin-Factin-ROCKi/Analysis/MatlabAnalysis/WrampMetrics/VersionControled/Output/80thPctlNoCloseStats_Myosin_20230312.csv", sep = ""), annotation1, "MCAM", "Factin", "Other")
+# 
+# matlab4.V1 <- importMatlabMulti(paste(dirPath, "Analysis/DataForTrainingClassifier/CopiedFromCopolarizationAndColocalizationOfERM/80thPctlNoCloseStats_Cell_20220504.csv", sep = ""), paste(dirPath, "Analysis/DataForTrainingClassifier/CopiedFromCopolarizationAndColocalizationOfERM/80thPctlNoCloseStats_MCAM_20220504.csv", sep = ""), paste(dirPath, "Analysis/DataForTrainingClassifier/CopiedFromCopolarizationAndColocalizationOfERM/80thPctlNoCloseStats_Factin_20220504.csv", sep = ""), paste(dirPath, "Analysis/DataForTrainingClassifier/CopiedFromCopolarizationAndColocalizationOfERM/80thPctlNoCloseStats_ERM_20220504.csv", sep = ""), annotation4, "MCAM", "Factin", "Other")
+# matlab4.V1 <- matlab4.V1 %>%
+#   dplyr::select(-all_of(setdiff(colnames(matlab4.V1), colnames(matlab1.V1))))
+```
+
+CellProfiler results are loaded here.
+```{r}
+# cpCellFig1 <- readCp(paste(dirPath, "Analysis/DataForTrainingClassifier/MCAM-Myosin-Factin-ROCKi/Analysis/CellProfiler/Output/20220201_CellProfiler_NoNegVals_Image.csv", sep = ""), paste(dirPath, "Analysis/DataForTrainingClassifier/MCAM-Myosin-Factin-ROCKi/Analysis/CellProfiler/Output/20220201_CellProfiler_NoNegVals_Cell.csv", sep = ""))
+# 
+# cpCellFig4 <- readCp(paste(dirPath, "Analysis/DataForTrainingClassifier/CopiedFromCopolarizationAndColocalizationOfERM/20220311_CellProfiler_NoNegValImage.csv", sep= ""), paste(dirPath, "Analysis/DataForTrainingClassifier/CopiedFromCopolarizationAndColocalizationOfERM/20220311_CellProfiler_NoNegValCell.csv", sep = ""))
+```
+
+Check that objects were named identically for Matlab and CellProfiler outputs. If this is true, setdiff should be 0 (empty).
+```{r}
+# setdiff(cpCellFig1$Object, matlab1.V1$Object)
+# setdiff(cpCellFig4$Object, matlab4.V1$Object)
+# sum(duplicated(matlab1.V1$Object))
+# sum(duplicated(matlab4.V1$Object))
+```
+
+Clean and combine Matlab and CellProfiler metrics: 
+```{r}
+# metricsClean1.V1 <- combineMetrics(matlab1.V1, cpCellFig1, "_BgSubtractedMcam", "_BgSubtractedFactin", "_BgSubtractedOther",
+#                                  "MCAM", "Factin", "Other")
+# metricsClean4.V1 <- combineMetrics(matlab4.V1, cpCellFig4, "_BgSubtractedMcam", "_BgSubtractedFactin", "_BgSubtractedOther",
+#                                  "MCAM", "Factin", "Other")
+# 
+# mcamFeatures <- read.csv(paste(dirPath, "Analysis/Paper/McamFeatures.csv", sep = "")) %>%
+#   filter(!suppFeatures2 %in% c("comboGbmExtraTwo_MCAM", "ManualScoreMcam", "mainCondition", "mainRep", "WrongObject"))
+# metricsClean.V1 <- rbind(metricsClean1.V1, metricsClean4.V1) %>% dplyr::select(all_of(mcamFeatures$suppFeatures2), "Normalization")
+# write_csv(metricsClean.V1, paste(dirPath, "Analysis/Paper/InputForGitHub/metricsClean_MCAM.csv", sep = ""))
+```
+
+Scaling of features for ML:
+```{r}
+# ## Colocalization measurements which will not be included in machine learning so that polarization of cells is classified independently of other channels:
+# colocFeatures <- colnames(matlab1.V1[,30:79])
+# 
+# ## Area and distance features (features which will be normalized by dividing by a median value)
+# normAreaFeatures <- read.csv(paste(dirPath, "Analysis/MachineLearning/MachineLearningDevelopment/MachineLearningWithVersionControl/MediansAndFeaturesForML/normAreaFeatures.csv", sep = ""))[,"x"]
+# 
+# # Generates channel-specific feature names
+# normAreaFeatures.MCAM <- normAreaFeaturesChannel(normAreaFeatures, "MCAM")
+# write.csv(normAreaFeatures.MCAM, paste(dirPath, "Analysis/Paper/Test/normAreaFeatures_MCAM.csv", sep = ""), row.names = F)
+# 
+# # Calculate the median value for area features in the control condition
+# medianAreas.MCAM <- controlMedianAreas(metricsClean1.V1, normAreaFeatures.MCAM, manual1 %>% filter(is.na(Segmentation)))
+# 
+# metricsScaled1.V1.MCAM <- scaleAreaIntensity(metricsClean1.V1, normAreaFeatures.MCAM, medianAreas.MCAM, colocFeatures, "MCAM", "_BgSubtractedMcam")
+# metricsScaled4.V1.MCAM <- scaleAreaIntensity(metricsClean4.V1, normAreaFeatures.MCAM, medianAreas.MCAM, colocFeatures, "MCAM", "_BgSubtractedMcam")
+# metricsScaledV1.MCAM <- rbind(metricsScaled1.V1.MCAM, metricsScaled4.V1.MCAM)
+# write_csv(metricsScaledV1.MCAM, paste(dirPath, "Analysis/Paper/InputForGitHub/metricsScaledMCAM.csv", sep = ""))
+```
+
+Load files from GitHub here:
+```{r}
+lvl = c("OneEnd", "BothEnds", "None")
+metricsClean.V1 <- read.csv(paste(dirPath, "Analysis/Paper/InputForGitHub/metricsClean_MCAM.csv", sep = ""))
+metricsScaledV1.MCAM <- read.csv(paste(dirPath, "Analysis/Paper/InputForGitHub/metricsScaledMCAM.csv", sep = ""))
+normAreaFeatures.MCAM <- read.csv(paste(dirPath, "Analysis/Paper/InputForGitHub/normAreaFeatures_MCAM.csv", sep = ""))[,"x"]
+manualComb <- read.csv(paste(dirPath, "Analysis/Paper/InputForGitHub/combinedManualScoring.csv", sep = "")) %>%
+  dplyr::mutate(ManualScoreMcam = factor(ManualScoreMcam, levels = lvl)) %>%
+  dplyr::mutate_at(c("ConfidenceMcam"), factor)
+combAnnot <- read.csv(paste(dirPath, "Analysis/Paper/InputForGitHub/combinedAnnotationDevelopment.csv", sep = ""))
+```
+
+Feature selection:
+Features by category:
+```{r}
+areaFeatures <- metricsScaledV1.MCAM %>% dplyr::select(all_of(normAreaFeatures.MCAM), contains("relArea"), 
+                                                contains("angle")) %>% colnames()
+
+intensityFeatures <- metricsScaledV1.MCAM %>% 
+                             dplyr::select(contains("ntensity"), contains("Zernike"), contains("RadialDistribution"), contains("OverNot"),
+                                    contains("profile"), contains("brightPix")) %>%
+                             colnames()
+
+textureFeatures <- metricsScaledV1.MCAM %>% dplyr::select(contains("Texture")) %>% colnames()
+
+otherFeatures <- setdiff(metricsScaledV1.MCAM %>% 
+                           dplyr::select(-Object, -Image, -Experiment, -Replicate, -Coverslip, -Condition, -Normalization) %>% colnames(),
+                         c(areaFeatures, intensityFeatures, textureFeatures))
+```
+
+Boxplots of features for each coverslip, followed by correlation matrices and Fisher scores to assist in manual variable selection. Highly correlated features were removed, as well as features that still had varied distributions between coverslips or experiments after scaling/normalization.
+
+Area and distance features:
+```{r}
+cols = rainbow(length(unique(combAnnot$Experiment)), s=.6, v=.9)[sample(1:length(unique(combAnnot$Experiment)),length(unique(combAnnot$Experiment)))]
+
+plots1scale(areaFeatures, metricsScaledV1.MCAM %>%
+              dplyr::mutate(Coverslip = factor(Coverslip, levels = unique(combAnnot$Coverslip))), "MCAM", paste(dirPath, "Analysis/Paper/FeaturePlots/", sep = ""))
+
+plots2scale(areaFeatures,
+              metricsClean.V1 %>%
+                dplyr::mutate(Coverslip = factor(Coverslip, levels = unique(combAnnot$Coverslip))),
+              metricsScaledV1.MCAM %>%
+                dplyr::mutate(Coverslip = factor(Coverslip, levels = unique(combAnnot$Coverslip))), "MCAM", paste(dirPath, "Analysis/Paper/FeaturePlots/", sep = ""))
+
+svglite(paste(dirPath, "Analysis/Paper/FeaturePlots/corrAreaMcam.svg", sep = ""))
+featureSelect(areaFeatures, metricsScaledV1.MCAM, manualComb, "ManualScoreMcam", "MCAM")
+dev.off()
+```
+
+Intensity features:
+```{r}
+plots2scale(intensityFeatures, metricsClean.V1 %>%
+              dplyr::mutate(Coverslip = factor(Coverslip, levels = unique(combAnnot$Coverslip))),
+            metricsScaledV1.MCAM %>%
+              dplyr::mutate(Coverslip = factor(Coverslip, levels = unique(combAnnot$Coverslip))), "MCAM", paste(dirPath, "Analysis/Paper/FeaturePlots/", sep = ""))
+
+svglite(paste(dirPath, "Analysis/Paper/FeaturePlots/corrIntensityMcam.svg", sep = ""))
+featureSelect(intensityFeatures, metricsScaledV1.MCAM, manualComb, "ManualScoreMcam", "MCAM")
+dev.off()
+```
+
+Texture features:
+```{r}
+plots2scale(textureFeatures, metricsClean.V1 %>%
+              dplyr::mutate(Coverslip = factor(Coverslip, levels = unique(combAnnot$Coverslip))),
+            metricsScaledV1.MCAM %>%
+              dplyr::mutate(Coverslip = factor(Coverslip, levels = unique(combAnnot$Coverslip))), "MCAM", paste(dirPath, "Analysis/Paper/FeaturePlots/", sep = ""))
+
+svglite(paste(dirPath, "Analysis/Paper/FeaturePlots/corrTextureMcam.svg", sep = ""))
+featureSelect(textureFeatures, metricsScaledV1.MCAM, manualComb, "ManualScoreMcam", "MCAM")
+dev.off()
+```
+
+% of cells with the brightest object corresponding to the polarized region of the cells:
+```{r}
+manualComb %>%
+  filter(is.na(Segmentation)) %>%
+  filter(ManualScoreMcam == "OneEnd") %>%
+  dplyr::mutate(WrongObject = ifelse(WrongObject == "Y", "Yes", WrongObject)) %>%
+  count(WrongObject) %>%
+  dplyr::mutate(perc = n/sum(n)*100, nTot = sum(n))
+```
+
+% of cells with a "BothEnds" phenotype:
+```{r}
+manualComb %>%
+  filter(is.na(Segmentation)) %>%
+  merge(metricsClean.V1 %>% dplyr::select(Object, Condition), by = "Object") %>%
+  dplyr::mutate(mainCond = ifelse(str_detect(Condition,"Cntr"), "Cntr", "ROCKi")) %>%
+  group_by(mainCond) %>%
+  count(ManualScoreMcam) %>%
+  dplyr::mutate(perc = n/sum(n)*100, nTot = sum(n)) %>%
+  ungroup()
+```
+
