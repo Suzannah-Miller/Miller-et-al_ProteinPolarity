@@ -460,7 +460,7 @@ analyzeResults2 <- function(dataset, className, score, conditionName){
 
 Path to main directory:
 ```{r}
-dirPath <- "/Volumes/ahngrp/Suzannah_Thesis_Paper/QuantitativeImageAnalysisPipeline/"
+dirPath <- "/Your/Directory/Path/"
 ```
 
 Manual Scoring Results. Note that all of the cells in the first three experiments were manually scored ("manual1"), while "manual 4" is scoring of a subset of cells from experiments 4-6.
