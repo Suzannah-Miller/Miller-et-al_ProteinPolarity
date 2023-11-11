@@ -14,7 +14,7 @@ Finally, it calculates the percentage of cells with "BothEnds" manual label and 
 
 
 ```{r}
-dirPath <- "/Volumes/ahngrp/Suzannah_Thesis_Paper/ERM_Knockdown/" # dirPath <- "Z:/Suzannah_Thesis_Paper/ERM_Knockdown/"
+dirPath <- "/Your/Directory/Path"
 ```
 
 Load packages:
