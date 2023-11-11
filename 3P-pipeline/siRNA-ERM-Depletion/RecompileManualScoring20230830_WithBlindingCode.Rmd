@@ -1,0 +1,1277 @@
+---
+title: "Compile Manual Scoring"
+output: html_notebook
+---
+
+This notebook compiles, fills in empty observations, and checks manual scoring from different iterations of scoring.
+
+3/15/23: corrected some of the checking script. Did not change results.
+
+8/30/23: adding code for blinding and shuffling images for each training set.
+
+9/12/23: correction to checking script, clean up validation scoring.
+```{r}
+library(tidyverse)
+library(readxl)
+```
+
+```{r}
+dirPath <- "/Volumes/ahngrp/Suzannah_Thesis_Paper/ERM_Knockdown/"
+```
+
+```{r}
+annotation <- read.csv(paste(dirPath, "AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/Output/allAnnotation20221101.csv", sep = ""))
+
+unique(annotation %>% dplyr::select(Experiment, Condition))
+
+twoChannelExperiments <- c("20210513_MoesinKD", "20210210_EzrinKD", "20210406_KD", "20210723_KD1", "20210726_KD1", "20210728_KD2")
+
+checkTypos <- function(rawScoring){
+  print(unique(rawScoring$Segmentation))
+  print(unique(rawScoring$WrongObject))
+  print(unique(rawScoring$ManualScoreMcam))
+  print(unique(rawScoring$ConfidenceMcam))
+  print(unique(rawScoring$ManualScoreFactin))
+  print(unique(rawScoring$ConfidenceFactin))
+  print(unique(rawScoring$ManualScoreOther))
+  print(unique(rawScoring$ConfidenceOther))
+  print(unique(rawScoring$SameSideFactin))
+  print(unique(rawScoring$SameSideOther))
+}
+
+fillScoring <- function(rawScoring, blinding, annotationdf){
+  scoringFilled <- rawScoring %>%
+    merge(blinding %>% dplyr::select("newNameImg", "imgNameV1"), by.x = "Cell", by.y = "newNameImg") %>%
+    dplyr::mutate(Object = str_remove(str_replace(imgNameV1, "_Img_Cell", ".nd2"), "_80thPctlNoClose.png")) %>%
+    dplyr::mutate(Image = str_replace(imgNameV1, "_Img_Cell.*", ".nd2")) %>%
+    merge(annotationdf, by = "Image") %>%
+    dplyr::mutate(ManualScoreMcam = ifelse((is.na(Segmentation) & is.na(ManualScoreMcam)), "None", ManualScoreMcam),
+           ConfidenceMcam = ifelse((is.na(Segmentation) & is.na(ConfidenceMcam)), 1, ConfidenceMcam)) %>%
+    dplyr::mutate(ManualScoreOther = ifelse(Experiment %in% twoChannelExperiments & !is.na(ManualScoreFactin), ManualScoreFactin, ManualScoreOther)) %>% 
+    dplyr::mutate(ConfidenceOther = ifelse(Experiment %in% twoChannelExperiments & !is.na(ConfidenceFactin), ConfidenceFactin, ConfidenceOther)) %>% # corrected from previous versions
+    dplyr::mutate(ManualScoreFactin = ifelse(Experiment %in% twoChannelExperiments & !is.na(ManualScoreFactin), NA, ManualScoreFactin)) %>%
+    dplyr::mutate(ConfidenceFactin = ifelse(Experiment %in% twoChannelExperiments & !is.na(ConfidenceFactin), NA, ConfidenceFactin)) %>%
+    dplyr::mutate(WrongObject = ifelse(Experiment %in% twoChannelExperiments & WrongObject == "Yes - Factin" & !is.na(WrongObject), "Yes - Other", WrongObject)) %>%
+    mutate(SameSideOther = ifelse(Experiment %in% twoChannelExperiments & SameSideFactin == "No" & !is.na(SameSideFactin), "No", SameSideOther)) %>%
+    mutate(SameSideFactin = ifelse(Experiment %in% twoChannelExperiments & SameSideFactin == "No" & !is.na(SameSideFactin), NA, SameSideFactin)) %>%
+    dplyr::mutate(ManualScoreOther = ifelse(is.na(ManualScoreOther), ManualScoreMcam, ManualScoreOther),
+           ConfidenceOther = ifelse(is.na(ConfidenceOther), ConfidenceMcam, ConfidenceOther),
+           ManualScoreFactin = ifelse(!Experiment %in% twoChannelExperiments & is.na(ManualScoreFactin), ManualScoreMcam, ManualScoreFactin),
+           ConfidenceFactin = ifelse(!Experiment %in% twoChannelExperiments & is.na(ConfidenceFactin), ConfidenceMcam, ConfidenceFactin))
+}
+
+fillScoringCopolar <- function(rawScoringCopolar, blinding, annotationdf){
+  # Difference from fillScoring is that empty ManualScoreMcam/ConfidenceMcam is filled with "OneEnd"/3
+  copolarFilled <- rawScoringCopolar %>%
+    merge(blinding %>% dplyr::select("newNameImg", "imgNameV1"), by.x = "Cell", by.y = "newNameImg") %>%
+    dplyr::mutate(Object = str_remove(str_replace(imgNameV1, "_Img_Cell", ".nd2"), "_80thPctlNoClose.png")) %>%
+    dplyr::mutate(Image = str_replace(imgNameV1, "_Img_Cell.*", ".nd2")) %>%
+    merge(annotationdf, by = "Image") %>%
+    dplyr::mutate(ManualScoreMcam = ifelse((is.na(Segmentation) & is.na(ManualScoreMcam)), "OneEnd", ManualScoreMcam),
+           ConfidenceMcam = ifelse((is.na(Segmentation) & is.na(ConfidenceMcam)), 3, ConfidenceMcam)) %>%
+    dplyr::mutate(ManualScoreOther = ifelse(Experiment %in% twoChannelExperiments & !is.na(ManualScoreFactin), ManualScoreFactin, ManualScoreOther)) %>% 
+    dplyr::mutate(ConfidenceOther = ifelse(Experiment %in% twoChannelExperiments & !is.na(ConfidenceFactin), ConfidenceFactin, ConfidenceOther)) %>% # corrected from previous versions
+    dplyr::mutate(ManualScoreFactin = ifelse(Experiment %in% twoChannelExperiments & !is.na(ManualScoreFactin), NA, ManualScoreFactin)) %>%
+    dplyr::mutate(ConfidenceFactin = ifelse(Experiment %in% twoChannelExperiments & !is.na(ConfidenceFactin), NA, ConfidenceFactin)) %>%
+    dplyr::mutate(WrongObject = ifelse(Experiment %in% twoChannelExperiments & WrongObject == "Yes - Factin" & !is.na(WrongObject), "Yes - Other", WrongObject)) %>%
+    mutate(SameSideOther = ifelse(Experiment %in% twoChannelExperiments & SameSideFactin == "No" & !is.na(SameSideFactin), "No", SameSideOther)) %>%
+    mutate(SameSideFactin = ifelse(Experiment %in% twoChannelExperiments & SameSideFactin == "No" & !is.na(SameSideFactin), NA, SameSideFactin)) %>%
+    dplyr::mutate(ManualScoreOther = ifelse(is.na(ManualScoreOther), ManualScoreMcam, ManualScoreOther),
+           ConfidenceOther = ifelse(is.na(ConfidenceOther), ConfidenceMcam, ConfidenceOther),
+           ManualScoreFactin = ifelse(!Experiment %in% twoChannelExperiments & is.na(ManualScoreFactin), ManualScoreMcam, ManualScoreFactin),
+           ConfidenceFactin = ifelse(!Experiment %in% twoChannelExperiments & is.na(ConfidenceFactin), ConfidenceMcam, ConfidenceFactin))
+}
+```
+
+From KnockdownAnalysis2.Rmd and KnockdownAnalysis20220603.Rmd:
+
+First set of images for manual scoring. Not all cells from the 2-channel set were scored (stopped after first 1598 blinded/shuffled cells).
+Selected based on preliminary classification, but not grouped by experiment (except separated by 2-channel and 3-channel images).
+
+Move images for manual scoring.
+2-channel images (earlier experiments):
+```{r}
+# # Model trained on a previous training set. This has lower accuracy on a separate dataset, but was used as a preliminary classification to ensure a reasonable proportion of polarized cells were being annotated (because polarized cells are usually in the minority, particular if treatment condition reduces the number of polarized cells).
+# mcamModels <- readRDS("E:/Maria Data/WRAMP/Paper/Figure_1_Analysis/MachineLearning/MachineLearningWithVersionControl/ClassifiersForMcam/modelList20220411")
+# # Preliminary classification:
+# metricsCleanMcamOther.Classified <- classifyCleanMetricsCombinedModels(metricsCleanMcamOther, 
+                                                #                metricsScaled.MCAM, 
+                                                #                 mcamModels[["fittedModels"]][["gbmTwo"]],
+                                                # mcamModels[["fittedModels"]][["extraTreesTwo"]], 
+                                                # columnName = "comboGbmExtraTwo_MCAM")
+#
+# set.seed(123)
+# wramp <- metricsCleanMcamOther.Classified %>%
+#   filter(Object %in% matlab2channel$Object) %>%
+#   filter(comboGbmExtraTwo_MCAM == "OneEnd") %>% dplyr::select(Object)
+# wramp <- wramp[sample(nrow(wramp), 1250, replace = F),]
+# 
+# set.seed(123)
+# none <- metricsCleanMcamOther.Classified %>%
+#   filter(Object %in% matlab2channel$Object) %>%
+#   filter(comboGbmExtraTwo_MCAM != "OneEnd") %>%
+#   dplyr::select(Object)
+# none <- none[sample(nrow(none), 2000, replace = F),]
+# 
+# # Shuffle cells
+# nCells <- length(wramp) + length(none)
+# set.seed(123)
+# fileNameV1 <- paste(gsub(".nd2", "_Img_Cell", c(wramp, none))[sample(nCells, nCells, replace = F)], "_80thPctlNoClose.png", sep = "")
+# fileNameV2 <- gsub("_80thPctlNoClose.png", "_Img_Cell_80thPctlNoClose.png", gsub("_Img_Cell", "", fileNameV1))
+# 
+# renameMatrix <- data.frame(newNum = 1:nCells, imgNameV1 = fileNameV1, imgNameV2 = fileNameV2) %>%
+#   dplyr::mutate(newNameImg = paste("80thPctlNoClose_", as.character(newNum), "_Img.png", sep = ""),
+#          newNameFig = paste("80thPctlNoClose_", as.character(newNum), "_Fig.png", sep = ""),
+#          figNameV1 = paste("Bg_", str_replace(imgNameV1, "Img", "Figure"), sep = ""),
+#          figNameV2 = str_replace(imgNameV2, "Img", "Figure")) %>%
+#    dplyr::mutate(pathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", imgNameV1, sep = ""),
+#           pathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", imgNameV2, sep = ""),
+#           pathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", figNameV1, sep = ""),
+#           pathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", figNameV2, sep = "")) %>%
+#   dplyr::mutate(toPathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation/", imgNameV1, sep = ""),
+#           toPathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation/", imgNameV2, sep = ""),
+#           toPathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation/", figNameV1, sep = ""),
+#           toPathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation/", figNameV2, sep = ""))
+# 
+# file.copy(from = renameMatrix$pathNameImgV1, to = renameMatrix$toPathNameImgV1)
+# file.copy(from = renameMatrix$pathNameImgV2, to = renameMatrix$toPathNameImgV2)
+# file.copy(from = renameMatrix$pathNameFigV1, to = renameMatrix$toPathNameFigV1)
+# file.copy(from = renameMatrix$pathNameFigV2, to = renameMatrix$toPathNameFigV2)
+# 
+# setwd("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation/")
+# write.csv(renameMatrix, "Blinding.csv")
+# file.rename(renameMatrix$imgNameV1, renameMatrix$newNameImg)
+# file.rename(renameMatrix$imgNameV2, renameMatrix$newNameImg)
+# file.rename(renameMatrix$figNameV1, renameMatrix$newNameFig)
+# file.rename(renameMatrix$figNameV2, renameMatrix$newNameFig)
+```
+
+3-channel images (later experiments):
+```{r}
+# set.seed(123)
+# wramp <- metricsCleanMcamOther.Classified %>%
+#   filter(!Object %in% matlab2channel$Object) %>%
+#   filter(comboGbmExtraTwo_MCAM == "OneEnd") %>% dplyr::select(Object)
+# wramp <- wramp[sample(nrow(wramp), 700, replace = F),]
+# 
+# set.seed(123)
+# none <- metricsCleanMcamOther.Classified %>%
+#   filter(!Object %in% matlab2channel$Object) %>%
+#   filter(comboGbmExtraTwo_MCAM != "OneEnd") %>%
+#   dplyr::select(Object)
+# none <- none[sample(nrow(none), 800, replace = F),]
+# 
+# # Shuffle cells
+# nCells <- length(wramp) + length(none)
+# set.seed(123)
+# fileNameV1 <- paste(gsub(".nd2", "_Img_Cell", c(wramp, none))[sample(nCells, nCells, replace = F)], "_80thPctlNoClose.png", sep = "")
+# fileNameV2 <- gsub("_80thPctlNoClose.png", "_Img_Cell_80thPctlNoClose.png", gsub("_Img_Cell", "", fileNameV1))
+# 
+# renameMatrix <- data.frame(newNum = 3251:(3250+nCells), imgNameV1 = fileNameV1, imgNameV2 = fileNameV2) %>%
+#   dplyr::mutate(newNameImg = paste("80thPctlNoClose_", as.character(newNum), "_Img.png", sep = ""),
+#          newNameFig = paste("80thPctlNoClose_", as.character(newNum), "_Fig.png", sep = ""),
+#          figNameV1 = paste("Bg_", str_replace(imgNameV1, "Img", "Figure"), sep = ""),
+#          figNameV2 = str_replace(imgNameV2, "Img", "Figure")) %>%
+#    dplyr::mutate(pathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", imgNameV1, sep = ""),
+#           pathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", imgNameV2, sep = ""),
+#           pathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", figNameV1, sep = ""),
+#           pathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", figNameV2, sep = "")) %>%
+#   dplyr::mutate(toPathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation2/", imgNameV1, sep = ""),
+#           toPathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation2/", imgNameV2, sep = ""),
+#           toPathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation2/", figNameV1, sep = ""),
+#           toPathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation2/", figNameV2, sep = ""))
+# 
+# file.copy(from = renameMatrix$pathNameImgV1, to = renameMatrix$toPathNameImgV1)
+# file.copy(from = renameMatrix$pathNameImgV2, to = renameMatrix$toPathNameImgV2)
+# file.copy(from = renameMatrix$pathNameFigV1, to = renameMatrix$toPathNameFigV1)
+# file.copy(from = renameMatrix$pathNameFigV2, to = renameMatrix$toPathNameFigV2)
+# 
+# setwd("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation2/")
+# write.csv(renameMatrix, "Blinding2.csv")
+# file.rename(renameMatrix$imgNameV1, renameMatrix$newNameImg)
+# file.rename(renameMatrix$imgNameV2, renameMatrix$newNameImg)
+# file.rename(renameMatrix$figNameV1, renameMatrix$newNameFig)
+# file.rename(renameMatrix$figNameV2, renameMatrix$newNameFig)
+```
+
+A classifier was trained on the above sets of annotated cells (blinding and blinding2). This was then applied to the dataset and additional cells were selected for validation, only from 20210513KD (not included in paper) and July 2021 KDs.
+
+Grouped by experimentGroup and comboGbmExtraTwo_MCAM (excluding previously scored cells), sampled with prop = .12. 732 cells used in compiled manual scoring.
+```{r}
+# valid3Objects <- metricsCleanMcamOther.Classified.New3 %>%
+#   merge(experimentGroup, by = "Experiment") %>%
+#   filter(experimentGroup %in% c("20210513KD", "202107KD")) %>%
+#   filter(!Object %in% trainingScoringUnblinded$Object) %>%
+#   filter(!str_detect(Condition, "P1day"), !str_detect(Condition,"EricsR23new")) %>%
+#   group_by(experimentGroup, comboGbmExtraTwo_MCAM) %>%
+#   slice_sample(prop = .12, replace = F) %>%
+#   dplyr::select(Object)
+
+# # Shuffle cells
+# nCells <- length(valid3Objects$Object)
+# set.seed(123)
+# fileNameV1 <- paste(gsub(".nd2", "_Img_Cell", valid3Objects$Object)[sample(nCells, nCells, replace = F)], "_80thPctlNoClose.png", sep = "")
+# fileNameV2 <- gsub("_80thPctlNoClose.png", "_Img_Cell_80thPctlNoClose.png", gsub("_Img_Cell", "", fileNameV1))
+# 
+# renameMatrix <- data.frame(newNum = 4751:(4750+nCells), imgNameV1 = fileNameV1, imgNameV2 = fileNameV2) %>%
+#   dplyr::mutate(newNameImg = paste("80thPctlNoClose_", as.character(newNum), "_Img.png", sep = ""),
+#          newNameFig = paste("80thPctlNoClose_", as.character(newNum), "_Fig.png", sep = ""),
+#          figNameV1 = paste("Bg_", str_replace(imgNameV1, "Img", "Figure"), sep = ""),
+#          figNameV2 = str_replace(imgNameV2, "Img", "Figure")) %>%
+#    dplyr::mutate(pathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", imgNameV1, sep = ""),
+#           pathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", imgNameV2, sep = ""),
+#           pathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", figNameV1, sep = ""),
+#           pathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/", figNameV2, sep = "")) %>%
+#   dplyr::mutate(toPathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation3/", imgNameV1, sep = ""),
+#           toPathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation3/", imgNameV2, sep = ""),
+#           toPathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation3/", figNameV1, sep = ""),
+#           toPathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation3/", figNameV2, sep = ""))
+# 
+# file.copy(from = renameMatrix$pathNameImgV1, to = renameMatrix$toPathNameImgV1)
+# file.copy(from = renameMatrix$pathNameImgV2, to = renameMatrix$toPathNameImgV2)
+# file.copy(from = renameMatrix$pathNameFigV1, to = renameMatrix$toPathNameFigV1)
+# file.copy(from = renameMatrix$pathNameFigV2, to = renameMatrix$toPathNameFigV2)
+# 
+# setwd("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/MatlabAnalysis/AllKDFigures/Validation3/")
+# write.csv(renameMatrix, "Blinding3.csv")
+# file.rename(renameMatrix$imgNameV1, renameMatrix$newNameImg)
+# file.rename(renameMatrix$imgNameV2, renameMatrix$newNameImg)
+# file.rename(renameMatrix$figNameV1, renameMatrix$newNameFig)
+# file.rename(renameMatrix$figNameV2, renameMatrix$newNameFig)
+```
+
+From KnockdownAnalysis20220603.Rmd:
+
+Manual scoring of any remaining cells from 20210513KD (done in 24-well glass-bottomed plate instead of coverslips):
+```{r}
+# needScoring0513 <- metricsCleanMcamOther %>%
+#   filter(experimentGroup == "20210513KD") %>%
+#   filter(mainCondition %in% (c("CellsOnly", "siCntr", "siMSN"))) %>%
+#   filter(!Object %in% validation3$Object, !Object %in% trainingScoringUnblinded) %>%
+#   dplyr::select(Object)
+#   
+# # Shuffle cells
+# nCells <- length(needScoring0513$Object)
+# set.seed(123)
+# fileNameV1 <- paste(gsub(".nd2", "_Img_Cell", needScoring0513$Object)[sample(nCells, nCells, replace = F)], "_80thPctlNoClose.png", sep = "")
+# fileNameV2 <- gsub("_80thPctlNoClose.png", "_Img_Cell_80thPctlNoClose.png", gsub("_Img_Cell", "", fileNameV1))
+# 
+# renameMatrix <- data.frame(newNum = 8402:(8401+nCells), imgNameV1 = fileNameV1, imgNameV2 = fileNameV2) %>%
+#   dplyr::mutate(newNameImg = paste("80thPctlNoClose_", as.character(newNum), "_Img.png", sep = ""),
+#          newNameFig = paste("80thPctlNoClose_", as.character(newNum), "_Fig.png", sep = ""),
+#          figNameV1 = paste("Bg_", str_replace(imgNameV1, "Img", "Figure"), sep = ""),
+#          figNameV2 = str_replace(imgNameV2, "Img", "Figure")) %>%
+#    dplyr::mutate(pathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/", imgNameV1, sep = ""),
+#           pathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/", imgNameV2, sep = ""),
+#           pathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/", figNameV1, sep = ""),
+#           pathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/", figNameV2, sep = "")) %>%
+#   dplyr::mutate(toPathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/20210513/", imgNameV1, sep = ""),
+#           toPathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/20210513/", imgNameV2, sep = ""),
+#           toPathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/20210513/", figNameV1, sep = ""),
+#           toPathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/20210513/", figNameV2, sep = ""))
+# 
+# file.copy(from = renameMatrix$pathNameImgV1, to = renameMatrix$toPathNameImgV1)
+# file.copy(from = renameMatrix$pathNameImgV2, to = renameMatrix$toPathNameImgV2)
+# file.copy(from = renameMatrix$pathNameFigV1, to = renameMatrix$toPathNameFigV1)
+# file.copy(from = renameMatrix$pathNameFigV2, to = renameMatrix$toPathNameFigV2)
+# 
+# setwd("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/20210513/")
+# write.csv(renameMatrix, "Blinding_Remaining0513.csv")
+# file.rename(renameMatrix$imgNameV1, renameMatrix$newNameImg)
+# file.rename(renameMatrix$imgNameV2, renameMatrix$newNameImg)
+# file.rename(renameMatrix$figNameV1, renameMatrix$newNameFig)
+# file.rename(renameMatrix$figNameV2, renameMatrix$newNameFig)
+```
+
+Manual scoring of cells from 20220530KD (not included in previous manual scoring):
+Grouped by classification based on blinding and blinding2 (?). Sampled by prop = .15. 613 cells
+```{r}
+# valid0530Objects <- metricsClean0530.Classified %>%
+#   group_by(Condition, comboGbmExtraTwo_MCAM) %>%
+#   slice_sample(prop = .15, replace = F) %>%
+#   dplyr::select(Object)
+
+# # Shuffle cells
+# nCells <- length(valid0530Objects$Object)
+# set.seed(123)
+# fileNameV1 <- paste(gsub(".nd2", "_Img_Cell", valid0530Objects$Object)[sample(nCells, nCells, replace = F)], "_80thPctlNoClose.png", sep = "")
+# fileNameV2 <- gsub("_80thPctlNoClose.png", "_Img_Cell_80thPctlNoClose.png", gsub("_Img_Cell", "", fileNameV1))
+# 
+# renameMatrix <- data.frame(newNum = 11219:(11218+nCells), imgNameV1 = fileNameV1, imgNameV2 = fileNameV2) %>%
+#   dplyr::mutate(newNameImg = paste("80thPctlNoClose_", as.character(newNum), "_Img.png", sep = ""),
+#          newNameFig = paste("80thPctlNoClose_", as.character(newNum), "_Fig.png", sep = ""),
+#          figNameV1 = paste("Bg_", str_replace(imgNameV1, "Img", "Figure"), sep = ""),
+#          figNameV2 = str_replace(imgNameV2, "Img", "Figure")) %>%
+#    dplyr::mutate(pathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/", imgNameV1, sep = ""),
+#           pathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/", imgNameV2, sep = ""),
+#           pathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/", figNameV1, sep = ""),
+#           pathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/", figNameV2, sep = "")) %>%
+#   dplyr::mutate(toPathNameImgV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/Validation0530/", imgNameV1, sep = ""),
+#           toPathNameImgV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/Validation0530/", imgNameV2, sep = ""),
+#           toPathNameFigV1 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/Validation0530/", figNameV1, sep = ""),
+#           toPathNameFigV2 = paste("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/Validation0530/", figNameV2, sep = ""))
+# 
+# file.copy(from = renameMatrix$pathNameImgV1, to = renameMatrix$toPathNameImgV1)
+# file.copy(from = renameMatrix$pathNameImgV2, to = renameMatrix$toPathNameImgV2)
+# file.copy(from = renameMatrix$pathNameFigV1, to = renameMatrix$toPathNameFigV1)
+# file.copy(from = renameMatrix$pathNameFigV2, to = renameMatrix$toPathNameFigV2)
+# 
+# setwd("E:/Maria Data/WRAMP/Paper/Figure_6_Analysis/AllKDFigures/Validation0530/")
+# write.csv(renameMatrix, "Blinding0530.csv")
+# file.rename(renameMatrix$imgNameV1, renameMatrix$newNameImg)
+# file.rename(renameMatrix$imgNameV2, renameMatrix$newNameImg)
+# file.rename(renameMatrix$figNameV1, renameMatrix$newNameFig)
+# file.rename(renameMatrix$figNameV2, renameMatrix$newNameFig)
+```
+
+Recompile manual scoring before colocalization analysis:
+```{r}
+# Part 1:
+blindingTrain <- rbind(read.csv(paste(dirPath, "AllKDFigures/Validation/Blinding.csv", sep = "")),
+                  read.csv(paste(dirPath, "AllKDFigures/Validation2/Blinding2.csv", sep = "")))
+sum(duplicated(blindingTrain$newNameImg))
+
+# Had to fill in first row to load correctly and then remove scores in Factin column
+# Warning: "TrainingScoring20220523" had no scores for img 1599-3250 (!!!!). I took these rows out in the "_Clean" version.
+trainingScoringRawTemp <- read_excel(paste(dirPath, "ManualScoringRawFiles/TrainingScoring20220523_Clean.xlsx", sep = ""), guess_max = 10000) 
+trainingScoringRaw <- trainingScoringRawTemp %>%
+  mutate(ManualScoreFactin = ifelse(Cell == "80thPctlNoClose_1_Img.png", NA, ManualScoreFactin),
+         ConfidenceFactin = ifelse(Cell == "80thPctlNoClose_1_Img.png", NA, ConfidenceFactin),
+         SameSideFactin = ifelse(Cell == "80thPctlNoClose_1_Img.png", NA, SameSideFactin))
+setdiff(trainingScoringRawTemp, trainingScoringRaw)
+
+# Check for typos
+checkTypos(trainingScoringRaw)
+
+# Fills in empty columns - if empty, ManualScoreMcam is assigned as "None", ConfidenceMcam as 1, and other scores are filled in to match MCAM
+trainingScoringFilledTemp <- trainingScoringRaw %>% 
+  merge(blindingTrain %>% dplyr::select("newNameImg", "imgNameV1"), by.x = "Cell", by.y = "newNameImg") %>%
+  dplyr::mutate(Object = str_remove(str_replace(imgNameV1, "_Img_Cell", ".nd2"), "_80thPctlNoClose.png")) %>%
+  dplyr::mutate(Image = str_replace(imgNameV1, "_Img_Cell.*", ".nd2")) %>%
+  merge(annotation, by = "Image") %>%
+  dplyr::mutate(ManualScoreMcam = ifelse((is.na(Segmentation) & is.na(ManualScoreMcam)), "None", ManualScoreMcam),
+         ConfidenceMcam = ifelse((is.na(Segmentation) & is.na(ConfidenceMcam)), 1, ConfidenceMcam))
+
+noImgObjects <- filter(trainingScoringFilledTemp, ManualScoreMcam == "NoImg") %>% dplyr::select(Object) # Removes unscored items because image didn't save correctly from Matlab
+
+trainingScoringFilled <- trainingScoringFilledTemp %>%
+  filter(!Object %in% noImgObjects$Object) %>%
+  dplyr::mutate(ManualScoreOther = ifelse(Experiment %in% twoChannelExperiments & !is.na(ManualScoreFactin), ManualScoreFactin, ManualScoreOther)) %>% # For two channel experiment, moves any data incorrectly entered into the Factin column
+  dplyr::mutate(ConfidenceOther = ifelse(Experiment %in% twoChannelExperiments & !is.na(ConfidenceFactin), ConfidenceFactin, ConfidenceOther)) %>% #corrected from previous versions
+  dplyr::mutate(ManualScoreFactin = ifelse(Experiment %in% twoChannelExperiments & !is.na(ManualScoreFactin), NA, ManualScoreFactin)) %>%
+  dplyr::mutate(ConfidenceFactin = ifelse(Experiment %in% twoChannelExperiments & !is.na(ConfidenceFactin), NA, ConfidenceFactin)) %>%
+  dplyr::mutate(WrongObject = ifelse(Experiment %in% twoChannelExperiments & WrongObject == "Yes - Factin" & !is.na(WrongObject), "Yes - Other", WrongObject)) %>%
+  mutate(SameSideOther = ifelse(Experiment %in% twoChannelExperiments & SameSideFactin == "No" & !is.na(SameSideFactin), "No", SameSideOther)) %>%
+  mutate(SameSideFactin = ifelse(Experiment %in% twoChannelExperiments & SameSideFactin == "No" & !is.na(SameSideFactin), NA, SameSideFactin)) %>%
+  dplyr::mutate(ManualScoreOther = ifelse(is.na(ManualScoreOther), ManualScoreMcam, ManualScoreOther),
+         ConfidenceOther = ifelse(is.na(ConfidenceOther), ConfidenceMcam, ConfidenceOther),
+         ManualScoreFactin = ifelse(!Experiment %in% twoChannelExperiments & is.na(ManualScoreFactin), ManualScoreMcam, ManualScoreFactin),
+         ConfidenceFactin = ifelse(!Experiment %in% twoChannelExperiments & is.na(ConfidenceFactin), ConfidenceMcam, ConfidenceFactin))
+
+trainingScoringFilled2 <- fillScoring(trainingScoringRaw, blindingTrain, annotation) %>% filter(!Object %in% noImgObjects$Object)
+identical(trainingScoringFilled, trainingScoringFilled2)
+
+sum(duplicated(trainingScoringFilled))
+str(trainingScoringFilled)
+
+# How many cells from Validation (2-channel) and Validation 3 were scored?
+nrow(trainingScoringFilled) == nrow(trainingScoringFilled %>% filter(Cell %in% blindingTrain$newNameImg)) # all cells found in blindingTrain
+blinding1 <- read.csv(paste(dirPath, "AllKDFigures/Validation/Blinding.csv", sep = ""))
+blinding2 <- read.csv(paste(dirPath, "AllKDFigures/Validation2/Blinding2.csv", sep = ""))
+
+intersect(blinding2$newNameImg, blinding1$newNameImg) # should be 0
+
+nrow(trainingScoringFilled %>% filter(Cell %in% blinding1$newNameImg)) #1598
+nrow(trainingScoringFilled %>% filter(Cell %in% blinding2$newNameImg)) #1439
+
+trainingScoringFilled %>% count(Experiment)
+
+# Part 2:
+blinding3 <- read.csv(paste(dirPath, "AllKDFigures/Validation3/Blinding3.csv", sep = ""))
+
+validation3raw <- read_excel(paste(dirPath, "ManualScoringRawFiles/MLValidation20210509and202107.xlsx", sep = ""), guess_max = 10000) %>%
+  mutate(SameSideFactin = as.character(SameSideFactin))
+str(validation3raw)
+# Check for typos
+checkTypos(validation3raw)
+
+validation3Filled <- fillScoring(validation3raw, blinding3, annotation)
+  
+#Part 3:
+manual0513rawTemp <- read_excel(paste(dirPath, "ManualScoringRawFiles/ManualScoring20210513.xlsx", sep = ""), guess_max = 10000)
+blinding0513 <- read.csv(paste(dirPath, "AllKDFigures/20210513/Blinding_Remaining0513.csv", sep = ""))
+
+str(manual0513rawTemp)
+manual0513raw <- manual0513rawTemp %>%
+  mutate(ManualScoreFactin = as.character(ManualScoreFactin),
+         ConfidenceFactin = as.numeric(ConfidenceFactin),
+         SameSideFactin = as.character(SameSideFactin))
+str(manual0513raw)
+
+checkTypos(manual0513raw)
+
+manual0513Filled <- fillScoring(manual0513raw, blinding0513, annotation)
+
+#Part 4:
+blinding0530 <- read.csv(paste(dirPath, "AllKDFigures/Validation0530/Blinding0530.csv", sep = ""))
+validation0530raw <- read_excel(paste(dirPath, "ManualScoringRawFiles/MLValidation20220530.xlsx",sep = ""))
+str(validation0530raw)
+
+# Check for typos
+checkTypos(validation0530raw)
+
+validation0530Filled <- fillScoring(validation0530raw, blinding0530, annotation)
+
+manualScoringNoCopolar <- rbind(trainingScoringFilled,
+                                validation3Filled %>% filter(!Object %in% trainingScoringFilled$Object),
+                                manual0513Filled %>% filter(!Object %in% trainingScoringFilled$Object, !Object %in% validation3Filled$Object),
+                                validation0530Filled %>% filter(!Object %in% trainingScoringFilled$Object, !Object %in% validation3Filled$Object, !Object %in% manual0513Filled$Object))
+
+# No duplicate entries for the same cell:
+sum(duplicated(manualScoringNoCopolar$Object))
+
+str(manualScoringNoCopolar)
+
+unique(manualScoringNoCopolar$Segmentation)
+unique(manualScoringNoCopolar$WrongObject)
+unique(manualScoringNoCopolar$ManualScoreMcam)
+unique(manualScoringNoCopolar$ConfidenceMcam)
+unique(manualScoringNoCopolar$ManualScoreFactin)
+unique(manualScoringNoCopolar$ConfidenceFactin)
+unique(manualScoringNoCopolar$ManualScoreOther)
+unique(manualScoringNoCopolar$ConfidenceOther)
+unique(manualScoringNoCopolar$SameSideFactin)
+unique(manualScoringNoCopolar$SameSideOther)
+
+# No missing scores
+manualScoringNoCopolar %>%
+  filter(is.na(Segmentation)) %>%
+  filter(is.na(ManualScoreMcam) | is.na(ManualScoreOther) | is.na(ConfidenceMcam) | is.na(ConfidenceOther))
+
+manualScoringNoCopolar %>%
+  filter(is.na(Segmentation)) %>%
+  filter(!Experiment %in% twoChannelExperiments) %>%
+  filter(is.na(ManualScoreFactin) | is.na(ConfidenceFactin))
+
+# No entries in Factin columns for two-channel experiments
+manualScoringNoCopolar %>%
+  filter(is.na(Segmentation)) %>%
+  filter(Experiment %in% twoChannelExperiments) %>%
+  filter(!is.na(ManualScoreFactin) | !is.na(ConfidenceFactin)) %>%
+  arrange(Cell)
+
+# Check for conflicting score/confidence
+manualScoringNoCopolar %>%
+  filter(ManualScoreMcam %in% c("OneEnd", "BothEnds"), ConfidenceMcam == 1)
+manualScoringNoCopolar %>%
+  filter(ManualScoreMcam == "None", ConfidenceMcam == 3)
+
+manualScoringNoCopolar %>%
+  filter(ManualScoreOther %in% c("OneEnd", "BothEnds"), ConfidenceOther == 1)
+manualScoringNoCopolar %>%
+  filter(ManualScoreOther == "None", ConfidenceOther == 3)
+
+manualScoringNoCopolar %>%
+  filter(ManualScoreFactin %in% c("OneEnd", "BothEnds"), ConfidenceFactin == 1)
+manualScoringNoCopolar %>%
+  filter(ManualScoreFactin == "None", ConfidenceFactin == 3)
+
+# Check that Score/Confidence are always both filled in raw file
+allRawUnique <- rbind(trainingScoringRaw, validation3raw, manual0513raw, validation0530raw) %>%
+  filter(Cell %in% manualScoringNoCopolar$Cell) %>% arrange(Cell)
+
+allRawUnique %>%
+  filter(is.na(ManualScoreMcam) & !is.na(ConfidenceMcam))
+allRawUnique %>%
+  filter(!is.na(ManualScoreMcam) & is.na(ConfidenceMcam))
+allRawUnique %>%
+  filter(is.na(ManualScoreOther) & !is.na(ConfidenceOther))
+allRawUnique %>%
+  filter(!is.na(ManualScoreOther) & is.na(ConfidenceOther))
+allRawUnique %>%
+  filter(is.na(ManualScoreFactin) & !is.na(ConfidenceFactin))
+allRawUnique %>%
+  filter(!is.na(ManualScoreFactin) & is.na(ConfidenceFactin))
+
+# Check that values were preserved during filling:
+manualRawFilledMcam <- allRawUnique %>% dplyr::filter(!is.na(ManualScoreMcam)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+manualRawFilledMcam <- manualRawFilledMcam %>%
+  merge(manualScoringNoCopolar %>% dplyr::filter(Cell %in% manualRawFilledMcam$Cell) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell), by = "Cell")
+identical(manualRawFilledMcam$ManualScoreMcam.x, manualRawFilledMcam$ManualScoreMcam.y)
+identical(manualRawFilledMcam$ConfidenceMcam.x, manualRawFilledMcam$ConfidenceMcam.y)
+
+manualRawEmptyOther <- allRawUnique %>% dplyr::filter(is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+
+manualRawEmptyOther <- manualRawEmptyOther%>%
+  merge(manualScoringNoCopolar %>% dplyr::filter(Cell %in% manualRawEmptyOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell") %>%
+  dplyr::filter(!is.na(ManualScoreMcam))
+identical(manualRawEmptyOther$ManualScoreMcam, manualRawEmptyOther$ManualScoreOther)
+identical(manualRawEmptyOther$ConfidenceMcam, manualRawEmptyOther$ConfidenceOther)
+manualRawFilledOther <- allRawUnique %>% dplyr::filter(!is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell)
+manualRawFilledOther <- manualRawFilledOther %>%
+  merge(manualScoringNoCopolar %>% dplyr::filter(Cell %in% manualRawFilledOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell")
+identical(manualRawFilledOther$ManualScoreOther.x, manualRawFilledOther$ManualScoreOther.y)
+identical(manualRawFilledOther$ConfidenceOther.x, manualRawFilledOther$ConfidenceOther.y)
+
+manualRawEmptyFactin <- allRawUnique %>% dplyr::filter(is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+
+manualRawEmptyFactin <- manualRawEmptyFactin %>%
+  merge(manualScoringNoCopolar %>% dplyr::filter(Cell %in% manualRawEmptyFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell, Experiment), by = "Cell") %>%
+  dplyr::filter(!is.na(ManualScoreMcam))
+identical(manualRawEmptyFactin$ManualScoreMcam, manualRawEmptyFactin$ManualScoreFactin)
+manualRawEmptyFactin %>% filter(Experiment %in% twoChannelExperiments) %>% count(ManualScoreFactin)  # All ManualScoreFactin in two channel experiment is NA
+identical(manualRawEmptyFactin$ManualScoreMcam[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments],
+          manualRawEmptyFactin$ManualScoreFactin[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments])
+
+identical(manualRawEmptyFactin$ConfidenceMcam, manualRawEmptyFactin$ConfidenceFactin)
+manualRawEmptyFactin %>% filter(Experiment %in% twoChannelExperiments) %>% count(ConfidenceFactin)  # All ConfidenceFactin in two channel experiment is NA
+identical(manualRawEmptyFactin$ConfidenceMcam[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments],
+          manualRawEmptyFactin$ConfidenceFactin[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments])
+
+manualRawFilledFactin <- allRawUnique %>% dplyr::filter(!is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell)
+manualRawFilledFactin <- manualRawFilledFactin %>%
+  merge(manualScoringNoCopolar %>% dplyr::filter(Cell %in% manualRawFilledFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell), by = "Cell")
+identical(manualRawFilledFactin$ManualScoreFactin.x, manualRawFilledFactin$ManualScoreFactin.y)
+identical(manualRawFilledFactin$ConfidenceFactin.x, manualRawFilledFactin$ConfidenceFactin.y)
+
+filter(manual0513raw, !is.na(ManualScoreFactin)) # No misplaced scores
+trainingRawUnblinded <- trainingScoringRaw %>%
+  merge(blindingTrain %>% dplyr::select("newNameImg", "imgNameV1"), by.x = "Cell", by.y = "newNameImg") %>%
+    dplyr::mutate(Object = str_remove(str_replace(imgNameV1, "_Img_Cell", ".nd2"), "_80thPctlNoClose.png")) %>%
+    dplyr::mutate(Image = str_replace(imgNameV1, "_Img_Cell.*", ".nd2")) %>%
+    merge(annotation, by = "Image")
+
+filter(trainingRawUnblinded, Experiment %in% twoChannelExperiments, (!is.na(ManualScoreFactin) | !is.na(ConfidenceFactin) | !is.na(SameSideFactin)))
+
+sideTest <- merge(allRawUnique, manualScoringNoCopolar, by = "Cell")
+identical(sideTest$SameSideFactin.x, sideTest$SameSideFactin.y)
+identical(sideTest$SameSideOther.x, sideTest$SameSideOther.y)
+identical(sideTest$WrongObject.x, sideTest$WrongObject.y)
+identical(sideTest$Segmentation.x, sideTest$Segmentation.y)
+
+nrow(dplyr::filter(manualScoringNoCopolar, is.na(ManualScoreMcam))) == nrow(dplyr::filter(allRawUnique, !is.na(Segmentation))) # Two rows with "Bad" segmentation and ManualScoreMcam, but these are both in the 0513 experiment
+nrow(dplyr::filter(manualScoringNoCopolar, is.na(ManualScoreMcam))) == nrow(dplyr::filter(manualScoringNoCopolar, !is.na(Segmentation)))
+nrow(dplyr::filter(manualScoringNoCopolar, is.na(ManualScoreMcam))) == nrow(dplyr::filter(manualScoringNoCopolar, is.na(ManualScoreOther)))
+nrow(dplyr::filter(manualScoringNoCopolar, is.na(ManualScoreMcam), !Experiment %in% twoChannelExperiments)) == nrow(dplyr::filter(manualScoringNoCopolar, is.na(ManualScoreFactin), !Experiment %in% twoChannelExperiments))
+
+nrow(dplyr::filter(manualScoringNoCopolar, !is.na(SameSideFactin))) == nrow(dplyr::filter(allRawUnique, !is.na(SameSideFactin)))
+nrow(dplyr::filter(manualScoringNoCopolar, !is.na(SameSideOther))) == nrow(dplyr::filter(allRawUnique, !is.na(SameSideOther)))
+
+#write.csv(manualScoringNoCopolar, "/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/manualScoringNoCopolar_20221104.csv", row.names = F)
+
+test <- read.csv(paste(dirPath, "AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/manualScoringNoCopolar_20221104.csv", sep = ""))
+
+identical(test %>% dplyr::select(-Exclude) %>% dplyr::mutate_at(dplyr::vars(contains("Confidence")), as.numeric), 
+          manualScoringNoCopolar %>% dplyr::select(-Exclude))
+
+nrow(manualScoringNoCopolar %>% filter(Cell %in% blinding3$newNameImg)) #732
+nrow(validation3Filled %>% filter(Object %in% trainingScoringFilled$Object)) #732 + 11 = 743
+nrow(manualScoringNoCopolar %>% filter(Cell %in% blinding0530$newNameImg)) # Used all 613 cells
+
+validation3Filled %>% group_by(Experiment) %>% count(ManualScoreMcam) %>% ungroup()
+validation0530Filled %>% group_by(Experiment) %>% count(ManualScoreMcam) %>% ungroup()
+manualScoringNoCopolar %>% group_by(Experiment) %>% count(ManualScoreMcam) %>% ungroup()
+manualScoringNoCopolar %>% group_by(Experiment) %>% count(mainCondition) %>% ungroup()
+manualScoringNoCopolar %>% count(ManualScoreMcam) 
+```
+Score more cells for training from experiments with fewer scored cells.  Up to this point, cells selected for manual scoring were grouped by classification and sampled sometimes by proportion and sometimes by number of cells per class.
+
+For new scoring, cells were grouped only be experimentGroup, excluding previously scored cells (sample 120 cells per experimentGroup).
+```{r}
+# allCells <- read.csv("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/Output/metricsClean_McamOther_Thesis_20221101.csv") %>% dplyr::select(Object, experimentGroup)
+# 
+# moreCells <- allCells %>%
+#   filter(!Object %in% manualScoringNoCopolar, # typo; should be $Object
+#          !experimentGroup %in% c("20220530KD", "20220509KD")) %>%
+#   group_by(experimentGroup) %>%
+#   slice_sample(n = 120, replace = F) %>%
+#   ungroup()
+#   
+# 
+# # Shuffle cells
+# nCells <- length(moreCells$Object)
+# set.seed(123)
+# fileNameV1 <- paste(gsub(".nd2", "_Img_Cell", moreCells$Object)[sample(nCells, nCells, replace = F)], "_80thPctlNoClose.png", sep = "")
+# fileNameV2 <- gsub("_80thPctlNoClose.png", "_Img_Cell_80thPctlNoClose.png", gsub("_Img_Cell", "", fileNameV1))
+# 
+# renameMatrix <- data.frame(newNum = 14742:(14741+nCells), imgNameV1 = fileNameV1, imgNameV2 = fileNameV2) %>%
+#   dplyr::mutate(newNameImg = paste("80thPctlNoClose_", as.character(newNum), "_Img.png", sep = ""),
+#          newNameFig = paste("80thPctlNoClose_", as.character(newNum), "_Fig.png", sep = ""),
+#          figNameV1 = paste("Bg_", str_replace(imgNameV1, "Img", "Figure"), sep = ""),
+#          figNameV2 = str_replace(imgNameV2, "Img", "Figure")) %>%
+#    dplyr::mutate(pathNameImgV1 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/", imgNameV1, sep = ""),
+#           pathNameImgV2 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/", imgNameV2, sep = ""),
+#           pathNameFigV1 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/", figNameV1, sep = ""),
+#           pathNameFigV2 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/", figNameV2, sep = "")) %>%
+#   dplyr::mutate(toPathNameImgV1 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/Valid20221103/", imgNameV1, sep = ""),
+#           toPathNameImgV2 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/Valid20221103/", imgNameV2, sep = ""),
+#           toPathNameFigV1 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/Valid20221103/", figNameV1, sep = ""),
+#           toPathNameFigV2 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/Valid20221103/", figNameV2, sep = ""))
+# 
+# file.copy(from = renameMatrix$pathNameImgV1, to = renameMatrix$toPathNameImgV1)
+# file.copy(from = renameMatrix$pathNameImgV2, to = renameMatrix$toPathNameImgV2)
+# file.copy(from = renameMatrix$pathNameFigV1, to = renameMatrix$toPathNameFigV1)
+# file.copy(from = renameMatrix$pathNameFigV2, to = renameMatrix$toPathNameFigV2)
+# 
+# setwd("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/Valid20221103/")
+# write.csv(renameMatrix, "Blinding_RemainingValid20221103.csv")
+# file.rename(renameMatrix$imgNameV1, renameMatrix$newNameImg)
+# file.rename(renameMatrix$imgNameV2, renameMatrix$newNameImg)
+# file.rename(renameMatrix$figNameV1, renameMatrix$newNameFig)
+# file.rename(renameMatrix$figNameV2, renameMatrix$newNameFig)
+```
+
+Clean up new scoring and compile with previous scoring. This compiled scoring ("manualScoringNoCopolar_20221104_New.csv") is what was used to select cells for training with upSample.
+```{r}
+allBlindingTemp <- read.csv(paste(dirPath, "AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/allBlinding20221103_Initial.csv", sep = ""))
+blinding1103 <- read.csv(paste(dirPath, "AllKDFigures/Valid20221103/Blinding_RemainingValid20221103.csv", sep = ""))
+intersect(allBlindingTemp$newNameImg, blinding1103$newNameImg) # No duplicated blinding names
+
+valid20221103raw <- read_excel(paste(dirPath, "ManualScoringRawFiles/ManualScoring20221103.xlsx", sep = ""), guess_max = 10000)
+
+checkTypos(valid20221103raw)
+
+valid20221103Filled <- fillScoring(valid20221103raw, blinding1103, annotation)
+
+manualScoringNoCopolarNew <- rbind(manualScoringNoCopolar,
+                                   valid20221103Filled %>% filter(!Object %in% manualScoringNoCopolar$Object))
+
+# No duplicate entries for the same cell:
+sum(duplicated(manualScoringNoCopolarNew$Object))
+
+str(manualScoringNoCopolarNew)
+
+unique(manualScoringNoCopolarNew$Segmentation)
+unique(manualScoringNoCopolarNew$WrongObject)
+unique(manualScoringNoCopolarNew$ManualScoreMcam)
+unique(manualScoringNoCopolarNew$ConfidenceMcam)
+unique(manualScoringNoCopolarNew$ManualScoreFactin)
+unique(manualScoringNoCopolarNew$ConfidenceFactin)
+unique(manualScoringNoCopolarNew$ManualScoreOther)
+unique(manualScoringNoCopolarNew$ConfidenceOther)
+unique(manualScoringNoCopolarNew$SameSideFactin)
+unique(manualScoringNoCopolarNew$SameSideOther)
+
+# No missing scores
+manualScoringNoCopolarNew %>%
+  filter(is.na(Segmentation)) %>%
+  filter(is.na(ManualScoreMcam) | is.na(ManualScoreOther) | is.na(ConfidenceMcam) | is.na(ConfidenceOther))
+
+manualScoringNoCopolarNew %>%
+  filter(is.na(Segmentation)) %>%
+  filter(!Experiment %in% twoChannelExperiments) %>%
+  filter(is.na(ManualScoreFactin) | is.na(ConfidenceFactin))
+
+# No entries in Factin columns for two-channel experiments
+manualScoringNoCopolarNew %>%
+  filter(is.na(Segmentation)) %>%
+  filter(Experiment %in% twoChannelExperiments) %>%
+  filter(!is.na(ManualScoreFactin) | !is.na(ConfidenceFactin)) %>%
+  arrange(Cell)
+
+# Check for conflicting score/confidence
+manualScoringNoCopolarNew %>%
+  filter(ManualScoreMcam %in% c("OneEnd", "BothEnds"), ConfidenceMcam == 1)
+manualScoringNoCopolarNew %>%
+  filter(ManualScoreMcam == "None", ConfidenceMcam == 3)
+
+manualScoringNoCopolarNew %>%
+  filter(ManualScoreOther %in% c("OneEnd", "BothEnds"), ConfidenceOther == 1)
+manualScoringNoCopolarNew %>%
+  filter(ManualScoreOther == "None", ConfidenceOther == 3)
+
+manualScoringNoCopolarNew %>%
+  filter(ManualScoreFactin %in% c("OneEnd", "BothEnds"), ConfidenceFactin == 1)
+manualScoringNoCopolarNew %>%
+  filter(ManualScoreFactin == "None", ConfidenceFactin == 3)
+
+# Check that Score/Confidence are always both filled in raw file
+allRawUnique <- rbind(trainingScoringRaw, validation3raw, manual0513raw, validation0530raw, valid20221103raw) %>%
+  filter(Cell %in% manualScoringNoCopolarNew$Cell) %>% arrange(Cell)
+
+allRawUnique %>%
+  filter(is.na(ManualScoreMcam) & !is.na(ConfidenceMcam))
+allRawUnique %>%
+  filter(!is.na(ManualScoreMcam) & is.na(ConfidenceMcam))
+allRawUnique %>%
+  filter(is.na(ManualScoreOther) & !is.na(ConfidenceOther))
+allRawUnique %>%
+  filter(!is.na(ManualScoreOther) & is.na(ConfidenceOther))
+allRawUnique %>%
+  filter(is.na(ManualScoreFactin) & !is.na(ConfidenceFactin))
+allRawUnique %>%
+  filter(!is.na(ManualScoreFactin) & is.na(ConfidenceFactin))
+
+
+# Check that values were preserved during filling:
+manualRawFilledMcam <- allRawUnique %>% dplyr::filter(!is.na(ManualScoreMcam)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+manualRawFilledMcam <- manualRawFilledMcam %>%
+  merge(manualScoringNoCopolarNew %>% dplyr::filter(Cell %in% manualRawFilledMcam$Cell) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell), by = "Cell")
+identical(manualRawFilledMcam$ManualScoreMcam.x, manualRawFilledMcam$ManualScoreMcam.y)
+identical(manualRawFilledMcam$ConfidenceMcam.x, manualRawFilledMcam$ConfidenceMcam.y)
+
+manualRawEmptyOther <- allRawUnique %>% dplyr::filter(is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+
+manualRawEmptyOther <- manualRawEmptyOther%>%
+  merge(manualScoringNoCopolarNew %>% dplyr::filter(Cell %in% manualRawEmptyOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell") %>%
+  dplyr::filter(!is.na(ManualScoreMcam))
+identical(manualRawEmptyOther$ManualScoreMcam, manualRawEmptyOther$ManualScoreOther)
+identical(manualRawEmptyOther$ConfidenceMcam, manualRawEmptyOther$ConfidenceOther)
+manualRawFilledOther <- allRawUnique %>% dplyr::filter(!is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell)
+manualRawFilledOther <- manualRawFilledOther %>%
+  merge(manualScoringNoCopolarNew %>% dplyr::filter(Cell %in% manualRawFilledOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell")
+identical(manualRawFilledOther$ManualScoreOther.x, manualRawFilledOther$ManualScoreOther.y)
+identical(manualRawFilledOther$ConfidenceOther.x, manualRawFilledOther$ConfidenceOther.y)
+
+manualRawEmptyFactin <- allRawUnique %>% dplyr::filter(is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+
+manualRawEmptyFactin <- manualRawEmptyFactin %>%
+  merge(manualScoringNoCopolarNew %>% dplyr::filter(Cell %in% manualRawEmptyFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell, Experiment), by = "Cell") %>%
+  dplyr::filter(!is.na(ManualScoreMcam))
+identical(manualRawEmptyFactin$ManualScoreMcam, manualRawEmptyFactin$ManualScoreFactin)
+manualRawEmptyFactin %>% filter(Experiment %in% twoChannelExperiments) %>% count(ManualScoreFactin)  # All ManualScoreFactin in two channel experiment is NA
+identical(manualRawEmptyFactin$ManualScoreMcam[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments],
+          manualRawEmptyFactin$ManualScoreFactin[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments])
+
+identical(manualRawEmptyFactin$ConfidenceMcam, manualRawEmptyFactin$ConfidenceFactin)
+manualRawEmptyFactin %>% filter(Experiment %in% twoChannelExperiments) %>% count(ConfidenceFactin)  # All ConfidenceFactin in two channel experiment is NA
+identical(manualRawEmptyFactin$ConfidenceMcam[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments],
+          manualRawEmptyFactin$ConfidenceFactin[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments])
+
+manualRawFilledFactin <- allRawUnique %>% dplyr::filter(!is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell)
+manualRawFilledFactin <- manualRawFilledFactin %>%
+  merge(manualScoringNoCopolarNew %>% dplyr::filter(Cell %in% manualRawFilledFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell), by = "Cell")
+identical(manualRawFilledFactin$ManualScoreFactin.x, manualRawFilledFactin$ManualScoreFactin.y)
+identical(manualRawFilledFactin$ConfidenceFactin.x, manualRawFilledFactin$ConfidenceFactin.y)
+
+sideTest <- merge(allRawUnique, manualScoringNoCopolarNew, by = "Cell")
+identical(sideTest$SameSideFactin.x, sideTest$SameSideFactin.y)
+identical(sideTest$SameSideOther.x, sideTest$SameSideOther.y)
+identical(sideTest$WrongObject.x, sideTest$WrongObject.y)
+identical(sideTest$Segmentation.x, sideTest$Segmentation.y)
+
+nrow(dplyr::filter(manualScoringNoCopolarNew, is.na(ManualScoreMcam))) == nrow(dplyr::filter(allRawUnique, !is.na(Segmentation))) # Two rows with "Bad" segmentation and ManualScoreMcam, but these are both in the 0513 experiment
+nrow(dplyr::filter(manualScoringNoCopolarNew, is.na(ManualScoreMcam))) == nrow(dplyr::filter(manualScoringNoCopolarNew, !is.na(Segmentation)))
+nrow(dplyr::filter(manualScoringNoCopolarNew, is.na(ManualScoreMcam))) == nrow(dplyr::filter(manualScoringNoCopolarNew, is.na(ManualScoreOther)))
+nrow(dplyr::filter(manualScoringNoCopolarNew, is.na(ManualScoreMcam), !Experiment %in% twoChannelExperiments)) == nrow(dplyr::filter(manualScoringNoCopolarNew, is.na(ManualScoreFactin), !Experiment %in% twoChannelExperiments))
+
+nrow(dplyr::filter(manualScoringNoCopolarNew, !is.na(SameSideFactin))) == nrow(dplyr::filter(allRawUnique, !is.na(SameSideFactin)))
+nrow(dplyr::filter(manualScoringNoCopolarNew, !is.na(SameSideOther))) == nrow(dplyr::filter(allRawUnique, !is.na(SameSideOther)))
+
+#write.csv(manualScoringNoCopolarNew, "/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/manualScoringNoCopolar_20221104_New.csv", row.names = F)
+
+test <- read.csv(paste(dirPath, "AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/manualScoringNoCopolar_20221104_New.csv", sep = ""))
+
+identical(test %>% dplyr::select(-Exclude) %>% dplyr::mutate_at(dplyr::vars(contains("Confidence")), as.numeric), 
+          manualScoringNoCopolarNew %>% dplyr::select(-Exclude))
+```
+
+Cells from the compiled scoring which were used in classifier training (filtering taken from KnockdownAnalysis20220715_ThesisRevised_20221103_Remade_GitHub.Rmd):
+```{r}
+manualScoringNoCopolarNew.Filtered <- manualScoringNoCopolarNew %>%
+  filter(Exclude != "Omit" | is.na(Exclude), 
+           !str_detect(Replicate, "StainCD44"), 
+           !str_detect(Replicate, "StainMCAMC"),
+           !str_detect(Image, "RDX488")) %>% # Stained using rabbit MCAM antibody or no MCAM
+  filter(str_detect(Condition, "StainMCAM-")) %>%
+  filter(!experimentGroup %in% c("20210513KD", "202107KD")) %>%
+  filter(mainRep != "20211205_siRhoA") %>% 
+  filter(!str_detect(Experiment, "20211205_KD_RDX"))
+
+manualScoringNoCopolarNew.Training <- manualScoringNoCopolarNew.Filtered %>% # 2138 cells (2484 before removing bad Segmentation and WrongObject)
+  filter(Exclude != "Omit" | is.na(Exclude),
+           !str_detect(Replicate, "StainCD44"),
+           !str_detect(Replicate, "StainMCAMC"),
+           !str_detect(Image, "RDX488")) %>% # Stained using rabbit MCAM antibody or no MCAM
+      filter(str_detect(Condition, "StainMCAM-")) %>%
+      filter(!experimentGroup %in% c("20210513KD", "202107KD")) %>%
+      filter(mainRep != "20211205_siRhoA") %>%
+      filter(!str_detect(Experiment, "20211205_KD_RDX")) %>%
+      filter(is.na(Segmentation), is.na(WrongObject)) # Remove cells with bad segmentation/brightest object from set used for ML
+  
+manualScoringNoCopolarNew.Training %>% group_by(mainRep) %>% count(ManualScoreMcam) %>% ungroup()
+manualScoringNoCopolarNew.Training %>% group_by(Experiment) %>% count(mainCondition) %>% ungroup()
+manualScoringNoCopolarNew.Training %>% count(mainCondition)
+manualScoringNoCopolarNew.Training %>% count(ManualScoreMcam)
+
+nrow(manualScoringNoCopolarNew.Training %>% filter(Object %in% trainingScoringFilled$Object)) # 1344 cells from first set of scoring, which was not sampled based on proportion
+
+# Rerunning code from KnockdownAnalysis20220715_ThesisRevised_20221103_Remade_GitHub.Rmd gave 1603 cells (out of 2138) for trainingObjectsMcamTemp
+```
+
+
+```{r}
+# Recompile previous copolarization scoring:
+blindingNoCopolar <- rbind(blindingTrain, blinding3, blinding0513, blinding0530, blinding1103)
+
+prevBlinding1 <- read.csv("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/Copolar/Blinding_RemainingCopolar.csv")
+
+prevBlinding2 <- read.csv("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/CopolarRemaining/Blinding_RemainingCopolar20220613.csv")
+
+prevBlinding3 <- read.csv("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/CopolarRemaining2/Blinding_RemainingCopolar20220715.csv")
+
+blindingRemaining <- read.csv("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/CopolarRemaining20221101/Blinding_RemainingCopolar20221101.csv")
+
+allBlinding <- rbind(blindingNoCopolar, prevBlinding1, prevBlinding2, prevBlinding3, blindingRemaining)
+
+#write.csv(allBlinding, "/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/allBlinding20221104_Initial.csv", row.names = F)
+
+copolar20220603raw <- read_excel("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/ManualScoringRawFiles/CopolarizationBlinded.xlsx")
+copolar20220613rawTypo <- read_excel("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/ManualScoringRawFiles/CopolarizationRemaining_20220613.xlsx")
+copolar20220613rawTypo[which(copolar20220613rawTypo$ManualScoreMcam == "None"),]
+filter(copolar20220613rawTypo, Segmentation == "Bad", ManualScoreMcam == "None")
+copolar20220613raw <- copolar20220613rawTypo %>%
+  mutate(ConfidenceMcam = ifelse(Cell =="80thPctlNoClose_13366_Img.png", NA, ConfidenceMcam),
+         ManualScoreMcam = ifelse(Cell == "80thPctlNoClose_13366_Img.png", NA, ManualScoreMcam))
+setdiff(copolar20220613rawTypo, copolar20220613raw)
+
+copolar20220715raw <- read_excel("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/ManualScoringRawFiles/CopolarizationRemaining_20220715.xlsx")
+copolar20221101raw<- read_excel("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/ManualScoringRawFiles/CopolarizationRemaining_20221101.xlsx")
+
+
+str(copolar20220603raw)
+str(copolar20220613raw)
+str(copolar20220715raw)
+str(copolar20221101raw)
+
+copolarizationOld <- rbind(copolar20220603raw, copolar20220613raw, copolar20220715raw, copolar20221101raw)
+checkTypos(copolarizationOld)
+
+copolar20220603Filled <- fillScoringCopolar(copolar20220603raw, allBlinding, annotation)
+
+copolar20220613Filled <- fillScoringCopolar(copolar20220613raw, allBlinding, annotation)
+
+copolar20220715Filled <- fillScoringCopolar(copolar20220715raw, allBlinding, annotation)
+
+copolar20221101Filled <- fillScoringCopolar(copolar20221101raw, allBlinding, annotation)
+
+copolarizationOldUnique <- rbind(copolar20220603Filled,
+                                 copolar20220613Filled %>% filter(!Object %in% copolar20220603Filled$Object),
+                                 copolar20220715Filled %>% filter(!Object %in% copolar20220613Filled$Object, !Object %in% copolar20220603Filled$Object),
+                                 copolar20221101Filled %>% filter(!Object %in% copolar20220613Filled$Object, !Object %in% copolar20220603Filled$Object, 
+                                                                  !Object %in% copolar20220715Filled$Object))
+
+## Check for errors in above code/excel sheets:
+# No objects scored more than once:
+sum(duplicated(copolarizationOldUnique$Object))
+ 
+unique(copolarizationOldUnique$ManualScoreMcam) # Note: There should be no "None" in this category
+unique(copolarizationOldUnique$ManualScoreFactin) 
+unique(copolarizationOldUnique$ManualScoreOther)
+unique(copolarizationOldUnique$ConfidenceMcam)  # There should be no 1 in this category
+unique(copolarizationOldUnique$ConfidenceFactin)
+unique(copolarizationOldUnique$ConfidenceOther)
+unique(copolarizationOldUnique$SameSideOther) 
+unique(copolarizationOldUnique$SameSideFactin)
+
+copolarizationOldUnique %>% filter(is.na(Segmentation), !Experiment %in% twoChannelExperiments) %>%
+  filter(is.na(ManualScoreFactin) | is.na(ConfidenceFactin)) # Check for no empty entries
+copolarizationOldUnique %>% filter(is.na(Segmentation), Experiment %in% twoChannelExperiments) %>%
+  filter(!is.na(ManualScoreFactin) | !is.na(ConfidenceFactin)) # Check for no entries in the Factin column for two-channel experiments
+copolarizationOldUnique %>% filter(is.na(Segmentation)) %>%
+  filter(is.na(ManualScoreMcam) | is.na(ManualScoreOther) | is.na(ConfidenceOther)) # Check for no empty entries
+
+copolarizationOldUnique %>% filter(ConfidenceMcam == 1)
+copolarizationOldUnique %>% filter(ConfidenceOther == 1, ManualScoreOther %in% c("One", "BothEnds"))
+copolarizationOldUnique %>% filter(ConfidenceFactin == 1, ManualScoreFactin %in% c("One", "BothEnds"))
+copolarizationOldUnique %>% filter(ConfidenceOther == 3, ManualScoreOther == "None")
+copolarizationOldUnique %>% filter(ConfidenceFactin == 3, ManualScoreFactin == "None")
+
+# Check score/confidence pairs both filled in raw file: (if missing, filled with default values)
+copolarRawUnique <- copolarizationOld %>%
+  filter(Cell %in% copolarizationOldUnique$Cell)
+
+copolarRawUnique %>%
+  filter(is.na(ManualScoreMcam) & !is.na(ConfidenceMcam))
+copolarRawUnique %>%
+  filter(!is.na(ManualScoreMcam) & is.na(ConfidenceMcam))
+copolarRawUnique %>%
+  filter(is.na(ManualScoreOther) & !is.na(ConfidenceOther))
+copolarRawUnique %>%
+  filter(!is.na(ManualScoreOther) & is.na(ConfidenceOther))
+copolarRawUnique %>%
+  filter(is.na(ManualScoreFactin) & !is.na(ConfidenceFactin))
+copolarRawUnique %>%
+  filter(!is.na(ManualScoreFactin) & is.na(ConfidenceFactin))
+
+# Check filling preserved original entries:
+copolarRawUniqueEmptyOther <- copolarRawUnique %>% filter(is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell) 
+copolarRawUniqueEmptyOther <- copolarRawUniqueEmptyOther%>%
+  merge(copolarizationOldUnique %>% filter(Cell %in% copolarRawUniqueEmptyOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell") %>%
+  filter(!is.na(ManualScoreMcam))
+all(copolarRawUniqueEmptyOther$ManualScoreMcam == copolarRawUniqueEmptyOther$ManualScoreOther)
+all(copolarRawUniqueEmptyOther$ConfidenceMcam == copolarRawUniqueEmptyOther$ConfidenceOther)
+copolarRawUniqueFilledOther <- copolarRawUnique %>% filter(!is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell) 
+copolarRawUniqueFilledOther <- copolarRawUniqueFilledOther %>%
+  merge(copolarizationOldUnique %>% filter(Cell %in% copolarRawUniqueFilledOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell") 
+all(copolarRawUniqueFilledOther$ManualScoreOther.x == copolarRawUniqueEmptyOther$ManualScoreOther.y)
+all(copolarRawUniqueEmptyOther$ConfidenceFactin.x == copolarRawUniqueEmptyOther$ConfidenceOther.y)
+
+copolarRawUniqueEmptyFactin <- copolarRawUnique %>% filter(is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell) 
+copolarRawUniqueEmptyFactin <- copolarRawUniqueEmptyFactin %>%
+  merge(copolarizationOldUnique %>% filter(Cell %in% copolarRawUniqueEmptyFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell), by = "Cell") %>%
+  filter(!is.na(ManualScoreMcam), Cell %in% copolarizationOldUnique$Cell[!copolarizationOldUnique$Experiment %in% twoChannelExperiments])
+all(copolarRawUniqueEmptyFactin$ManualScoreMcam == copolarRawUniqueEmptyOther$ManualScoreFactin)
+all(copolarRawUniqueEmptyFactin$ConfidenceMcam == copolarRawUniqueEmptyOther$ConfidenceFactin)
+copolarRawUniqueFilledFactin <- copolarRawUnique %>% filter(!is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell) 
+copolarRawUniqueFilledFactin <- copolarRawUniqueFilledFactin %>%
+  merge(copolarizationOldUnique %>% filter(Cell %in% copolarRawUniqueFilledFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell), by = "Cell") %>%
+  filter(Cell %in% copolarizationOldUnique$Cell[!copolarizationOldUnique$Experiment %in% twoChannelExperiments])
+all(copolarRawUniqueFilledFactin$ManualScoreFactin.x == copolarRawUniqueEmptyFactin$ManualScoreFactin.y)
+all(copolarRawUniqueEmptyFactin$ConfidenceFactin.x == copolarRawUniqueEmptyFactin$ConfidenceFactin.y)
+
+sideTest <- merge(copolarRawUnique, copolarizationOldUnique, by = "Cell") 
+identical(sideTest$SameSideFactin.x, sideTest$SameSideFactin.y) # This will not be true if Factin score had to be moved in the two-channel experiments
+identical(sideTest$SameSideOther.x, sideTest$SameSideOther.y) # This will not be true if Factin score had to be moved in the two-channel experiments
+identical(sideTest$WrongObject.x, sideTest$WrongObject.y) # This will not be true if Factin score had to be moved in the two-channel experiments
+identical(sideTest$Segmentation.x, sideTest$Segmentation.y)
+
+copolarizationOldMcam488 <- copolarizationOldUnique %>%
+  filter(Exclude != "Omit" | is.na(Exclude), 
+           !str_detect(Replicate, "StainCD44"), 
+           !str_detect(Replicate, "StainMCAMC"),
+           !str_detect(Image, "RDX488")) # Stained using rabbit MCAM antibody or no MCAM
+
+
+sum(duplicated(copolarizationOldMcam488$Object))
+
+#write.csv(copolarizationOldUnique, "/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/CompiledCopolarization_All_20221104.csv")
+
+#write.csv(copolarizationOldMcam488, "/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/CompiledCopolarization_MCAM488_20221104.csv")
+```
+
+Check a random sampling of manual scoring:
+```{r}
+# #Check sample of manual scoring
+# #Shuffle cells
+# nCells <- 10
+# set.seed(123)
+# sampleCells <- c(manualScoringNoCopolarNew$Object[sample(nrow(manualScoringNoCopolarNew), nCells, replace = F)],
+#                  copolarizationOldMcam488$Object[sample(nrow(copolarizationOldMcam488), nCells, replace = F)])
+# fileNameV1 <- paste(gsub(".nd2", "_Img_Cell", sampleCells), "_80thPctlNoClose.png", sep = "")
+# fileNameV2 <- gsub("_80thPctlNoClose.png", "_Img_Cell_80thPctlNoClose.png", gsub("_Img_Cell", "", fileNameV1))
+# 
+# renameMatrix <- data.frame(imgNameV1 = fileNameV1, imgNameV2 = fileNameV2) %>%
+#   dplyr::mutate(figNameV1 = paste("Bg_", str_replace(imgNameV1, "Img", "Figure"), sep = ""),
+#          figNameV2 = str_replace(imgNameV2, "Img", "Figure")) %>%
+#    dplyr::mutate(pathNameImgV1 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/", imgNameV1, sep = ""),
+#           pathNameImgV2 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/", imgNameV2, sep = ""),
+#           pathNameFigV1 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/", figNameV1, sep = ""),
+#           pathNameFigV2 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllKDFigures/", figNameV2, sep = "")) %>%
+#   dplyr::mutate(toPathNameImgV1 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/CheckManualScoring/", imgNameV1, sep = ""),
+#           toPathNameImgV2 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/CheckManualScoring/", imgNameV2, sep = ""),
+#           toPathNameFigV1 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/CheckManualScoring/", figNameV1, sep = ""),
+#           toPathNameFigV2 = paste("/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/CheckManualScoring/", figNameV2, sep = ""))
+# 
+# file.copy(from = renameMatrix$pathNameImgV1, to = renameMatrix$toPathNameImgV1)
+# file.copy(from = renameMatrix$pathNameImgV2, to = renameMatrix$toPathNameImgV2)
+# file.copy(from = renameMatrix$pathNameFigV1, to = renameMatrix$toPathNameFigV1)
+# file.copy(from = renameMatrix$pathNameFigV2, to = renameMatrix$toPathNameFigV2)
+# 
+# write.csv(manualScoringNoCopolarNew %>% filter(Object %in% sampleCells), "/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/CheckManualScoring/ScoringNoCopolar3.csv")
+# write.csv(copolarizationOldMcam488 %>% filter(Object %in% sampleCells), "/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/CheckManualScoring/ScoringCopolar3.csv")
+
+# Copolar sample 2 - looks like some hasty scoring was done.
+```
+
+Rescored copolarization data after reclassifying cells for final version of thesis:
+```{r}
+blindingCopolarRescoring <- read.csv(paste(dirPath, "AllKDFigures/CopolarRescoring20221109/Blinding_Rescoring20221109.csv", sep = ""))
+scoringCopolarRescoringRaw <- read_excel(paste(dirPath,"ManualScoringRawFiles/RescoringCopolarization20221109.xlsx", sep = ""), guess_max= 10000)
+str(scoringCopolarRescoringRaw)
+
+checkTypos(scoringCopolarRescoringRaw)
+# ManualScoreMcam/ConfidenceMcam should not contain "None"/1
+
+scoringCopolarRescoringFilled <- fillScoringCopolar(scoringCopolarRescoringRaw, blindingCopolarRescoring, annotation)
+str(scoringCopolarRescoringFilled)
+
+## Check for errors in above code/excel sheets:
+# No objects scored more than once:
+sum(duplicated(scoringCopolarRescoringFilled$Object))
+ 
+checkTypos(scoringCopolarRescoringFilled)
+
+scoringCopolarRescoringFilled %>% filter(is.na(Segmentation), !Experiment %in% twoChannelExperiments) %>%
+  filter(is.na(ManualScoreFactin) | is.na(ConfidenceFactin)) # Check for no empty entries
+scoringCopolarRescoringFilled %>% filter(is.na(Segmentation), Experiment %in% twoChannelExperiments) %>%
+  filter(!is.na(ManualScoreFactin) | !is.na(ConfidenceFactin)) # Check for no entries in the Factin column for two-channel experiments
+scoringCopolarRescoringFilled %>% filter(is.na(Segmentation)) %>%
+  filter(is.na(ManualScoreMcam) | is.na(ManualScoreOther) | is.na(ConfidenceOther)) # Check for no empty entries
+
+scoringCopolarRescoringFilled %>% filter(ConfidenceMcam == 1)
+scoringCopolarRescoringFilled %>% filter(ConfidenceOther == 1, ManualScoreOther %in% c("One", "BothEnds"))
+scoringCopolarRescoringFilled %>% filter(ConfidenceFactin == 1, ManualScoreFactin %in% c("One", "BothEnds"))
+scoringCopolarRescoringFilled %>% filter(ConfidenceOther == 3, ManualScoreOther == "None")
+scoringCopolarRescoringFilled %>% filter(ConfidenceFactin == 3, ManualScoreFactin == "None")
+
+# Check no scores in "Bad" segmentation rows
+scoringCopolarRescoringFilled %>%
+  filter(!is.na(Segmentation)) %>%
+  filter(!is.na(ManualScoreMcam) | !is.na(ConfidenceMcam) | !is.na(ManualScoreOther) | !is.na(ConfidenceOther) | !is.na(ManualScoreFactin) | !is.na(ConfidenceFactin) | !is.na(WrongObject) | !is.na(SameSideOther) | !is.na(SameSideFactin))
+
+# Check score/confidence pairs both filled in raw file: (if missing, filled with default values)
+scoringCopolarRescoringRaw %>%
+  filter(is.na(ManualScoreMcam) & !is.na(ConfidenceMcam))
+scoringCopolarRescoringRaw %>%
+  filter(!is.na(ManualScoreMcam) & is.na(ConfidenceMcam))
+scoringCopolarRescoringRaw %>%
+  filter(is.na(ManualScoreOther) & !is.na(ConfidenceOther))
+scoringCopolarRescoringRaw %>%
+  filter(!is.na(ManualScoreOther) & is.na(ConfidenceOther))
+scoringCopolarRescoringRaw %>%
+  filter(is.na(ManualScoreFactin) & !is.na(ConfidenceFactin))
+scoringCopolarRescoringRaw %>%
+  filter(!is.na(ManualScoreFactin) & is.na(ConfidenceFactin))
+
+# Check that values were preserved during filling:
+manualRawFilledMcam <- scoringCopolarRescoringRaw %>% dplyr::filter(!is.na(ManualScoreMcam)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+manualRawFilledMcam <- manualRawFilledMcam %>%
+  merge(scoringCopolarRescoringFilled %>% dplyr::filter(Cell %in% manualRawFilledMcam$Cell) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell), by = "Cell")
+identical(manualRawFilledMcam$ManualScoreMcam.x, manualRawFilledMcam$ManualScoreMcam.y)
+identical(manualRawFilledMcam$ConfidenceMcam.x, manualRawFilledMcam$ConfidenceMcam.y)
+
+manualRawEmptyOther <- scoringCopolarRescoringRaw %>% dplyr::filter(is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+
+manualRawEmptyOther <- manualRawEmptyOther%>%
+  merge(scoringCopolarRescoringFilled %>% dplyr::filter(Cell %in% manualRawEmptyOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell") %>%
+  dplyr::filter(!is.na(ManualScoreMcam))
+identical(manualRawEmptyOther$ManualScoreMcam, manualRawEmptyOther$ManualScoreOther)
+identical(manualRawEmptyOther$ConfidenceMcam, manualRawEmptyOther$ConfidenceOther)
+manualRawFilledOther <- scoringCopolarRescoringRaw %>% dplyr::filter(!is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell)
+manualRawFilledOther <- manualRawFilledOther %>%
+  merge(scoringCopolarRescoringFilled %>% dplyr::filter(Cell %in% manualRawFilledOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell")
+identical(manualRawFilledOther$ManualScoreOther.x, manualRawFilledOther$ManualScoreOther.y)
+identical(manualRawFilledOther$ConfidenceOther.x, manualRawFilledOther$ConfidenceOther.y)
+
+manualRawEmptyFactin <- scoringCopolarRescoringRaw %>% dplyr::filter(is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+
+manualRawEmptyFactin <- manualRawEmptyFactin %>%
+  merge(scoringCopolarRescoringFilled %>% dplyr::filter(Cell %in% manualRawEmptyFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell, Experiment), by = "Cell") %>%
+  dplyr::filter(!is.na(ManualScoreMcam))
+identical(manualRawEmptyFactin$ManualScoreMcam, manualRawEmptyFactin$ManualScoreFactin)
+manualRawEmptyFactin %>% filter(Experiment %in% twoChannelExperiments) %>% count(ManualScoreFactin)  # All ManualScoreFactin in two channel experiment is NA
+identical(manualRawEmptyFactin$ManualScoreMcam[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments],
+          manualRawEmptyFactin$ManualScoreFactin[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments])
+
+identical(manualRawEmptyFactin$ConfidenceMcam, manualRawEmptyFactin$ConfidenceFactin)
+manualRawEmptyFactin %>% filter(Experiment %in% twoChannelExperiments) %>% count(ConfidenceFactin)  # All ConfidenceFactin in two channel experiment is NA
+identical(manualRawEmptyFactin$ConfidenceMcam[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments],
+          manualRawEmptyFactin$ConfidenceFactin[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments])
+
+manualRawFilledFactin <- scoringCopolarRescoringRaw %>% dplyr::filter(!is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell)
+manualRawFilledFactin <- manualRawFilledFactin %>%
+  merge(scoringCopolarRescoringFilled %>% dplyr::filter(Cell %in% manualRawFilledFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell), by = "Cell")
+identical(manualRawFilledFactin$ManualScoreFactin.x, manualRawFilledFactin$ManualScoreFactin.y) # 1 cell from 2-channel experiments where score was recorded in wrong column
+identical(manualRawFilledFactin$ConfidenceFactin.x, manualRawFilledFactin$ConfidenceFactin.y)
+
+trainingRawUnblinded <- scoringCopolarRescoringRaw %>%
+  merge(blindingCopolarRescoring %>% dplyr::select("newNameImg", "imgNameV1"), by.x = "Cell", by.y = "newNameImg") %>%
+    dplyr::mutate(Object = str_remove(str_replace(imgNameV1, "_Img_Cell", ".nd2"), "_80thPctlNoClose.png")) %>%
+    dplyr::mutate(Image = str_replace(imgNameV1, "_Img_Cell.*", ".nd2")) %>%
+    merge(annotation, by = "Image")
+
+filter(trainingRawUnblinded, Experiment %in% twoChannelExperiments, (!is.na(ManualScoreFactin) | !is.na(ConfidenceFactin) | !is.na(SameSideFactin)))
+
+sideTest <- merge(scoringCopolarRescoringRaw, scoringCopolarRescoringFilled, by = "Cell")
+identical(sideTest$SameSideFactin.x, sideTest$SameSideFactin.y)
+identical(sideTest$SameSideOther.x, sideTest$SameSideOther.y)
+identical(sideTest$WrongObject.x, sideTest$WrongObject.y)
+identical(sideTest$Segmentation.x, sideTest$Segmentation.y)
+
+sideTest %>% filter(WrongObject.x != WrongObject.y) # 4 entries with two channels only where Yes - Factin was changed to Yes - Other (images were stained for F-actin)
+
+nrow(dplyr::filter(scoringCopolarRescoringFilled, is.na(ManualScoreMcam))) == nrow(dplyr::filter(scoringCopolarRescoringRaw, !is.na(Segmentation))) # Two rows with "Bad" segmentation and ManualScoreMcam, but these are both in the 0513 experiment
+nrow(dplyr::filter(scoringCopolarRescoringFilled, is.na(ManualScoreMcam))) == nrow(dplyr::filter(scoringCopolarRescoringFilled, !is.na(Segmentation)))
+nrow(dplyr::filter(scoringCopolarRescoringFilled, is.na(ManualScoreMcam))) == nrow(dplyr::filter(scoringCopolarRescoringFilled, is.na(ManualScoreOther)))
+nrow(dplyr::filter(scoringCopolarRescoringFilled, is.na(ManualScoreMcam), !Experiment %in% twoChannelExperiments)) == nrow(dplyr::filter(scoringCopolarRescoringFilled, is.na(ManualScoreFactin), !Experiment %in% twoChannelExperiments))
+
+nrow(dplyr::filter(scoringCopolarRescoringFilled, !is.na(SameSideFactin))) == nrow(dplyr::filter(scoringCopolarRescoringRaw, !is.na(SameSideFactin)))
+nrow(dplyr::filter(scoringCopolarRescoringFilled, !is.na(SameSideOther))) == nrow(dplyr::filter(scoringCopolarRescoringRaw, !is.na(SameSideOther)))
+
+# write.csv(scoringCopolarRescoringFilled, "/Volumes/ahngrp/Suzannah_Thesis_Paper/Fig1Fig6Backup/Figure_6_Analysis/AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/ManualRescoringCopolarization20221109.csv")
+
+test <- read.csv(paste(dirPath, "AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/ManualRescoringCopolarization20221109.csv", sep = "")) %>% dplyr::select(-X)
+
+all.equal(test, scoringCopolarRescoringFilled)
+identical(test %>% dplyr::select(-Exclude) %>% dplyr::mutate_at(dplyr::vars(contains("Confidence")), as.numeric), 
+          scoringCopolarRescoringFilled %>% dplyr::select(-Exclude))
+```
+
+New validation scoring:
+```{r}
+blinding0901 <- read.csv("/Volumes/Seagate4Tb/ValidationSample1_20230901/Blinding_ValidationSample1_20230901.csv")
+scoringValid0901Raw <- read_excel("/Volumes/Seagate4Tb/ValidationSample1_20230901_ManualScoring_Final.xlsx", guess_max = 10000)
+
+str(scoringValid0901Raw)
+checkTypos(scoringValid0901Raw)
+
+# No scores in the F-actin channels for 2-channel experiments
+scoringValid0901Raw %>% 
+  merge(blinding0901 %>% dplyr::select("newNameImg", "imgNameV1"), by.x = "Cell", by.y = "newNameImg") %>%
+  dplyr::mutate(Object = str_remove(str_replace(imgNameV1, "_Img_Cell", ".nd2"), "_80thPctlNoClose.png")) %>%
+  dplyr::mutate(Image = str_replace(imgNameV1, "_Img_Cell.*", ".nd2")) %>%
+  merge(annotation, by = "Image") %>%
+  filter(Experiment %in% twoChannelExperiments) %>%
+  filter(!is.na(ManualScoreFactin) | !is.na(ConfidenceFactin) | !is.na(SameSideFactin))
+
+scoringValid0901 <- fillScoring(scoringValid0901Raw, blinding0901, annotation)
+
+scoringValid0901Test <- scoringValid0901Raw %>%
+  merge(blinding0901 %>% dplyr::select("newNameImg", "imgNameV1"), by.x = "Cell", by.y = "newNameImg") %>%
+  dplyr::mutate(Object = str_remove(str_replace(imgNameV1, "_Img_Cell", ".nd2"), "_80thPctlNoClose.png")) %>%
+  dplyr::mutate(Image = str_replace(imgNameV1, "_Img_Cell.*", ".nd2")) %>%
+  merge(annotation, by = "Image") %>%
+  dplyr::mutate(ManualScoreMcam = ifelse((is.na(Segmentation) & is.na(ManualScoreMcam)), "None", ManualScoreMcam),
+         ConfidenceMcam = ifelse((is.na(Segmentation) & is.na(ConfidenceMcam)), 1, ConfidenceMcam)) %>%
+  dplyr::mutate(ManualScoreOther = ifelse(is.na(ManualScoreOther), ManualScoreMcam, ManualScoreOther),
+           ConfidenceOther = ifelse(is.na(ConfidenceOther), ConfidenceMcam, ConfidenceOther),
+           ManualScoreFactin = ifelse(!Experiment %in% twoChannelExperiments & is.na(ManualScoreFactin), ManualScoreMcam, ManualScoreFactin),
+           ConfidenceFactin = ifelse(!Experiment %in% twoChannelExperiments & is.na(ConfidenceFactin), ConfidenceMcam, ConfidenceFactin))
+
+identical(scoringValid0901, scoringValid0901Test)
+
+# No duplicate entries for the same cell:
+sum(duplicated(scoringValid0901$Object))
+
+str(scoringValid0901)
+
+unique(scoringValid0901$Segmentation)
+unique(scoringValid0901$WrongObject)
+unique(scoringValid0901$ManualScoreMcam)
+unique(scoringValid0901$ConfidenceMcam)
+unique(scoringValid0901$ManualScoreFactin)
+unique(scoringValid0901$ConfidenceFactin)
+unique(scoringValid0901$ManualScoreOther)
+unique(scoringValid0901$ConfidenceOther)
+unique(scoringValid0901$SameSideFactin)
+unique(scoringValid0901$SameSideOther)
+
+# No missing scores
+scoringValid0901 %>%
+  filter(is.na(Segmentation)) %>%
+  filter(is.na(ManualScoreMcam) | is.na(ManualScoreOther) | is.na(ConfidenceMcam) | is.na(ConfidenceOther))
+
+scoringValid0901 %>%
+  filter(is.na(Segmentation)) %>%
+  filter(!Experiment %in% twoChannelExperiments) %>%
+  filter(is.na(ManualScoreFactin) | is.na(ConfidenceFactin))
+
+# No entries in Factin columns for two-channel experiments
+scoringValid0901 %>%
+  filter(is.na(Segmentation)) %>%
+  filter(Experiment %in% twoChannelExperiments) %>%
+  filter(!is.na(ManualScoreFactin) | !is.na(ConfidenceFactin)) %>%
+  arrange(Cell)
+
+# Check for conflicting score/confidence
+scoringValid0901 %>%
+  filter(ManualScoreMcam %in% c("OneEnd", "BothEnds"), ConfidenceMcam == 1)
+scoringValid0901 %>%
+  filter(ManualScoreMcam == "None", ConfidenceMcam == 3)
+
+scoringValid0901 %>%
+  filter(ManualScoreOther %in% c("OneEnd", "BothEnds"), ConfidenceOther == 1)
+scoringValid0901 %>%
+  filter(ManualScoreOther == "None", ConfidenceOther == 3)
+
+scoringValid0901 %>%
+  filter(ManualScoreFactin %in% c("OneEnd", "BothEnds"), ConfidenceFactin == 1)
+scoringValid0901 %>%
+  filter(ManualScoreFactin == "None", ConfidenceFactin == 3)
+
+# Check that Score/Confidence are always both filled in raw file
+scoringValid0901Raw %>%
+  filter(is.na(ManualScoreMcam) & !is.na(ConfidenceMcam))
+scoringValid0901Raw %>%
+  filter(!is.na(ManualScoreMcam) & is.na(ConfidenceMcam))
+scoringValid0901Raw %>%
+  filter(is.na(ManualScoreOther) & !is.na(ConfidenceOther))
+scoringValid0901Raw %>%
+  filter(!is.na(ManualScoreOther) & is.na(ConfidenceOther))
+scoringValid0901Raw %>%
+  filter(is.na(ManualScoreFactin) & !is.na(ConfidenceFactin))
+scoringValid0901Raw %>%
+  filter(!is.na(ManualScoreFactin) & is.na(ConfidenceFactin))
+
+
+# Check that values were preserved during filling:
+manualRawFilledMcam <- scoringValid0901Raw %>% dplyr::filter(!is.na(ManualScoreMcam)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+manualRawFilledMcam <- manualRawFilledMcam %>%
+  merge(scoringValid0901 %>% dplyr::filter(Cell %in% manualRawFilledMcam$Cell) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell), by = "Cell")
+identical(manualRawFilledMcam$ManualScoreMcam.x, manualRawFilledMcam$ManualScoreMcam.y)
+identical(manualRawFilledMcam$ConfidenceMcam.x, manualRawFilledMcam$ConfidenceMcam.y)
+
+manualRawEmptyOther <- scoringValid0901Raw %>% dplyr::filter(is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+
+manualRawEmptyOther <- manualRawEmptyOther%>%
+  merge(scoringValid0901 %>% dplyr::filter(Cell %in% manualRawEmptyOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell") %>%
+  dplyr::filter(!is.na(ManualScoreMcam))
+identical(manualRawEmptyOther$ManualScoreMcam, manualRawEmptyOther$ManualScoreOther)
+identical(manualRawEmptyOther$ConfidenceMcam, manualRawEmptyOther$ConfidenceOther)
+manualRawFilledOther <- scoringValid0901Raw %>% dplyr::filter(!is.na(ManualScoreOther)) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell)
+manualRawFilledOther <- manualRawFilledOther %>%
+  merge(scoringValid0901 %>% dplyr::filter(Cell %in% manualRawFilledOther$Cell) %>% dplyr::select(ManualScoreOther, ConfidenceOther, Cell), by = "Cell")
+identical(manualRawFilledOther$ManualScoreOther.x, manualRawFilledOther$ManualScoreOther.y)
+identical(manualRawFilledOther$ConfidenceOther.x, manualRawFilledOther$ConfidenceOther.y)
+
+manualRawEmptyFactin <- scoringValid0901Raw %>% dplyr::filter(is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreMcam, ConfidenceMcam, Cell)
+
+manualRawEmptyFactin <- manualRawEmptyFactin %>%
+  merge(scoringValid0901 %>% dplyr::filter(Cell %in% manualRawEmptyFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell, Experiment), by = "Cell") %>%
+  dplyr::filter(!is.na(ManualScoreMcam))
+identical(manualRawEmptyFactin$ManualScoreMcam, manualRawEmptyFactin$ManualScoreFactin)
+manualRawEmptyFactin %>% filter(Experiment %in% twoChannelExperiments) %>% count(ManualScoreFactin)  # All ManualScoreFactin in two channel experiment is NA
+identical(manualRawEmptyFactin$ManualScoreMcam[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments],
+          manualRawEmptyFactin$ManualScoreFactin[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments])
+
+identical(manualRawEmptyFactin$ConfidenceMcam, manualRawEmptyFactin$ConfidenceFactin)
+manualRawEmptyFactin %>% filter(Experiment %in% twoChannelExperiments) %>% count(ConfidenceFactin)  # All ConfidenceFactin in two channel experiment is NA
+identical(manualRawEmptyFactin$ConfidenceMcam[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments],
+          manualRawEmptyFactin$ConfidenceFactin[!manualRawEmptyFactin$Experiment %in% twoChannelExperiments])
+
+manualRawFilledFactin <- scoringValid0901Raw %>% dplyr::filter(!is.na(ManualScoreFactin)) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell)
+manualRawFilledFactin <- manualRawFilledFactin %>%
+  merge(scoringValid0901 %>% dplyr::filter(Cell %in% manualRawFilledFactin$Cell) %>% dplyr::select(ManualScoreFactin, ConfidenceFactin, Cell), by = "Cell")
+identical(manualRawFilledFactin$ManualScoreFactin.x, manualRawFilledFactin$ManualScoreFactin.y)
+identical(manualRawFilledFactin$ConfidenceFactin.x, manualRawFilledFactin$ConfidenceFactin.y)
+
+sideTest <- merge(scoringValid0901Raw, scoringValid0901, by = "Cell")
+identical(sideTest$SameSideFactin.x, sideTest$SameSideFactin.y)
+identical(sideTest$SameSideOther.x, sideTest$SameSideOther.y)
+identical(sideTest$WrongObject.x, sideTest$WrongObject.y)
+identical(sideTest$Segmentation.x, sideTest$Segmentation.y)
+
+nrow(dplyr::filter(scoringValid0901, is.na(ManualScoreMcam))) == nrow(dplyr::filter(scoringValid0901Raw, !is.na(Segmentation))) 
+nrow(dplyr::filter(scoringValid0901, is.na(ManualScoreMcam))) == nrow(dplyr::filter(scoringValid0901, !is.na(Segmentation)))
+nrow(dplyr::filter(scoringValid0901, is.na(ManualScoreMcam))) == nrow(dplyr::filter(scoringValid0901, is.na(ManualScoreOther)))
+nrow(dplyr::filter(scoringValid0901, is.na(ManualScoreMcam), !Experiment %in% twoChannelExperiments)) == nrow(dplyr::filter(scoringValid0901, is.na(ManualScoreFactin), !Experiment %in% twoChannelExperiments))
+
+nrow(dplyr::filter(scoringValid0901, !is.na(SameSideFactin))) == nrow(dplyr::filter(scoringValid0901Raw, !is.na(SameSideFactin)))
+nrow(dplyr::filter(scoringValid0901, !is.na(SameSideOther))) == nrow(dplyr::filter(scoringValid0901Raw, !is.na(SameSideOther)))
+
+write.csv(scoringValid0901, paste(dirPath, "AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/manualScoring_ValidationSample1_20230901_Final.csv", sep = ""), row.names = F)
+
+oldScoring <- read.csv(paste(dirPath, "AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/manualScoring_ValidationSample1_20230901.csv", sep = ""))
+newScoring <- read.csv(paste(dirPath, "AllReplicatesAnalysisInR/AllReplicates_RevisedAnalysis_20221101/InputForML/manualScoring_ValidationSample1_20230901_Final.csv", sep = ""))
+
+identical(newScoring %>% dplyr::select(-Exclude) %>% dplyr::mutate_at(dplyr::vars(contains("Confidence")), as.numeric), 
+          scoringValid0901 %>% dplyr::select(-Exclude))
+
+compare <- merge(oldScoring[,1:12], newScoring[,1:12], by = "Cell")
+compare %>%
+  filter(ManualScoreMcam.x != ManualScoreMcam.y)
+
+compare %>%
+  dplyr::select(-Image.x) %>%
+  filter(ConfidenceMcam.x != ConfidenceMcam.y) 
+
+compare %>%
+  filter(ManualScoreOther.x != ManualScoreOther.y) # Corrected score entered on wrong line of spreadsheet
+
+compare %>%
+  filter(ConfidenceOther.x != ConfidenceOther.y) # Corrected score entered on wrong line of spreadsheet
+
+setdiff(oldScoring, newScoring)
+```
+
