@@ -16,7 +16,7 @@ library(readxl)
 ```
 
 ```{r}
-dirPath <- "/Volumes/ahngrp/Suzannah_Thesis_Paper/ERM_Knockdown/"
+dirPath <- "/Your/Directory/Path/"
 ```
 
 ```{r}
