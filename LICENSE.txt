@@ -1,5 +1,7 @@
 Attribution-ShareAlike 4.0 International
 
+Copyright (c) 2023 Regents of the University of Colorado Boulder.
+
 =======================================================================
 
 Creative Commons Corporation ("Creative Commons") is not a law firm and
