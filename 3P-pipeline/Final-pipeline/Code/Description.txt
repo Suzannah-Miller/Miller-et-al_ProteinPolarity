@@ -4,6 +4,8 @@ MaskAndSegmentImages.m provides the MATLAB code for generating image masks and s
 ExtractFeatures.m provides the MATLAB code for uploading images, masks, and segmentation, and 
 extracting the feature data for each cell.
 
+CompileManualScoring.Rmd is the R markdown file for unblinding, compiling, and checking the manual labeling data.
+
 MachineLearning_MCAM-ERM.Rmd is the R markdown file for compiling feature data and performing machine learning to classify cells 
 with polarized protein. It also includes code for analyzing co-polarization, generating figures, and performing statistics. 
 The "Final-pipeline/Input" folder contains the data necessary to run this code. 
