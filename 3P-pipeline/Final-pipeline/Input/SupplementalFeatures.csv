@@ -2,7 +2,9 @@ Feature
 Object
 Stain
 ManualScoreMcam
+ConfidenceMcam
 ManualScoreOther
+ConfidenceOther
 WrongObject
 comboGbmExtraTwo_Other2
 comboGbmExtraTwo_MCAM2
@@ -10,6 +12,7 @@ copolarOther
 copolarFactin
 copolarTriple
 ColocalizationPlot
+TestSet
 Experiment
 Image
 mainCondition
@@ -27,16 +30,12 @@ medBgMain
 medBgOther
 percOverlapOther2Main
 percOverlapMain2Other
-percOverlapBrightestThird2Main
 percOverlapBrightestOther2Main
 percOverlapBrightestMain2Other
-percOverlapBrightestThird2Other
 otherAtWramp
 pearsonOtherWramp
 mandersMainOtherBrightest1
 mandersMainOtherBrightest2
-mandersThirdOtherBrightest1
-mandersThirdOtherBrightest2
 pearsonOther
 mandersMainOther1
 mandersMainOther2
