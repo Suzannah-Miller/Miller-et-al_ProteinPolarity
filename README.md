@@ -6,13 +6,15 @@ Accompanies Miller SG, Hoh M, Ebmeier CC, Tay, J, Ahn NG, Cooperative polarizati
 # 3P Pipeline Materials
 The 3P pipeline is a method for single-cell analysis of fluorescence microscopy data which identifies cells with polarized proteins and characterizes the localization of polarized proteins. Image segmentation and feature extraction is performed in MATLAB. Additional features are extracted using CellProfiler (Stirling et al., BMC Bioinformatics 22, 433). Features are combined and pre-processed for ML in R. Images are sampled and blinded for manual labeling, and then training of a machine learning model for classifying polarized cells is implemented in R using the caret package (Kuhn, 2019). Additionally, the code is included for analysis of the colocalization features and generation of the figures in Miller et al. 
 
+The implementation of the pipeline is described extensively in the Supplemental Materials for Miller _et al_.
+
 The "3P-Pipeline" folder is divided into three sections. 
 
-The "Feature-Selection" folder contains code, input, and output data used during optimization of the pipeline to select features for machine learning. 
+The "Feature-Selection" folder contains code, input, and output data used during optimization of the pipeline to select features for machine learning. This was used to generate Supplemental Figure S7A-C in Miller _et al_.
 
-The "Final-pipeline" folder contains all code for implementation of the pipeline, including MATLAB code for image processing and feature extraction, the CellProfiler pipeline, and R Markdown files for machine learning using iterative builing of a training set. The input and output data and the classification models for the dataset shown in Miller et al. Figure 7 and 9 (classification of polarized MCAM, MSN, EZR, and p-ERM) are included in the folder to allow the user to run the R Markdown file "MachineLearning_MCAM-ERM.Rmd". This file also contains the statistical analyses of the results and analysis of the co-polarization and colocalization of pairs of polarized proteins. 
+The "Final-pipeline" folder contains all code for implementation of the pipeline, including MATLAB code for image processing and feature extraction, the CellProfiler pipeline, and R Markdown files for machine learning using iterative builing of a training set. The input and output data and the classification models for the dataset shown in Miller _et al_. Figure 7 and 9 (classification of polarized MCAM, MSN, EZR, and p-ERM) are included in the folder to allow the user to run the R Markdown file "MachineLearning_MCAM-ERM.Rmd". This file also contains the statistical analyses of the results and analysis of the co-polarization and colocalization of pairs of polarized proteins. 
 
-The "siRNA-ERM-Depletion" folder contains the code for analyzing the dataset shown in Figure 5B,D, Figure 6, and Supplemental Figures S7D-S9. 
+The "siRNA-ERM-Depletion" folder contains the code for analyzing the dataset shown in Figure 5B,D, Figure 6, and Supplemental Figures S7D-S9 in Miller _et al_. 
 
 # Additional Content
 The "BioID" folder contains the R Markdown file for performing the analysis of the MCAM BioID data.
