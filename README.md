@@ -24,6 +24,6 @@ The "Kymograph" folder contains the MATLAB scripts for generating kymographs fro
 The "Supplemental-Data-Files" is a repository for supplemental data which accompanies Miller et al. It contains Supplemental Table S1 (BioID peptide quantification) and the consolidated feature data, ML classifications, and ML labeling for 3P pipeline analyses. Note that the "3P-Pipeline" folder includes additional input and output data for running the 3P analyses.
 
 # Software Requirements
-
+Analyses were run using MATLAB 2020a including the Image Processing Toolbox (version 11.1) and the Statistics and Machine Learning Toolbox (version 11.7), CellProfiler 4.2.1 or earlier (https://cellprofiler.org/), and R version R4.1.0 or later. Nikon .nd2 image files were imported into MATLAB using The Open Microscopy Environment Bio-Formats toolbox (https://docs.openmicroscopy.org/bio-formats/)https://docs.openmicroscopy.org/bio-formats/).
 
 
