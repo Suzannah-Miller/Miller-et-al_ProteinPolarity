@@ -56,7 +56,7 @@ fillScoringCopolar <- function(rawScoring, blinding, annotationdf){
 
 Raw manual scoring for 1st training set (copied from Analysis20221128):
 ```{r}
-dirPath <- "C:/Users/sumi6491/Documents/CrisprClones/Analysis20221211/" 
+dirPath <- "/Directory/Path/" 
 
 annotationCrispr<- read.csv(paste(dirPath, "AnnotationCrisprIF.csv", sep = ""))
 
