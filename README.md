@@ -4,7 +4,7 @@ Accompanies Miller SG, Hoh M, Ebmeier CC, Tay, J, Ahn NG, Cooperative polarizati
 # Acknowledgments
 
 # 3P Pipeline Materials
-The 3P pipeline is a method for single-cell analysis of fluorescence microscopy data which identifies cells with polarized proteins and characterizes the localization of polarized proteins. Image segmentation and feature extraction is performed in MATLAB. Additional features are extracted using CellProfiler (Stirling et al., BMC Bioinformatics 22, 433). Features are combined and pre-processed for ML in R. Images are sampled and blinded for manual labeling, and then training of a machine learning model for classifying polarized cells is implemented in R using the caret package (Kuhn, 2019). Additionally, the code is included for analysis of the colocalization features and generation of the figures in Miller et al. 
+The 3P pipeline is a method for single-cell analysis of fluorescence microscopy data which identifies cells with polarized proteins and characterizes the localization of polarized proteins. Image segmentation and feature extraction is performed in MATLAB. Additional features are extracted using CellProfiler (Stirling et al., BMC Bioinformatics 22, 433). Features are combined and pre-processed for ML in R. Images are sampled and blinded for manual labeling, and then training of a machine learning model for classifying polarized cells is implemented in R using the caret package (Kuhn, 2019). Additionally, the code is included for analysis of the colocalization features and generation of the figures in Miller _et al_. 
 
 The implementation of the pipeline is described extensively in the Supplemental Materials for Miller _et al_.
 
