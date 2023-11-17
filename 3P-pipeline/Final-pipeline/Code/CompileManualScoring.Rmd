@@ -172,7 +172,7 @@ identical(test, manualTrain1)
 
 Raw manual scoring for 2nd training set:
 ```{r}
-dirPath <- "C:/Users/sumi6491/Documents/CrisprClones/Analysis20221211/"
+dirPath <- "Directory/Path/"
 
 annotationCrispr<- read.csv(paste(dirPath, "AnnotationCrisprIF.csv", sep = ""))
 
@@ -284,7 +284,7 @@ identical(test, manualTrain2)
 ```
 Clean up 3rd training set (more cells with RDX staining)
 ```{r}
-dirPath <- "C:/Users/sumi6491/Documents/CrisprClones/Analysis20221211/"
+dirPath <- "/Directory/Path/"
 
 annotationCrispr<- read.csv(paste(dirPath, "AnnotationCrisprIF.csv", sep = ""))
 
@@ -414,7 +414,7 @@ checkTypos(testCombined)
 
 Copolarization data for cells classified as having polarized MCAM
 ```{r}
-dirPath <- "C:/Users/sumi6491/Documents/CrisprClones/Analysis20221211/"
+dirPath <- "/Directory/Path/"
 manualTrainUpdated <- read.csv(paste(dirPath, "CrisprAnalysisInR/Output/combinedManualTraining_3TrainintSets.csv", sep = ""))
 annotationCrispr<- read.csv(paste(dirPath, "AnnotationCrisprIF.csv", sep = ""))
 
@@ -549,7 +549,7 @@ checkTypos(test)
 
 Manual scoring for validation/accuracy of ML classification (9/6/23)
 ```{r}
-dirPath <- "/Volumes/ahngrp/Suzannah_Thesis_Paper/ClonalCRISPR/Analysis20221211/"
+dirPath <- "/Directory/Path/"
 
 annotationCrispr<- read.csv(paste(dirPath, "AnnotationCrisprIF.csv", sep = ""))
 
