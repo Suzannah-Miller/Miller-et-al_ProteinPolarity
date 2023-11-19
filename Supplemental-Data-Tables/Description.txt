@@ -1,0 +1,3 @@
+Supplemental data accompanying Miller et al. A detailed description of each .csv file
+is found in Supplemental Table S14, which is included in the "Tables_S2-S6_S13-S14.xls"
+file in this folder.
