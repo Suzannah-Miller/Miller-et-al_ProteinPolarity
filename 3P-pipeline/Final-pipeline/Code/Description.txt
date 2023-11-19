@@ -8,6 +8,8 @@ CompileManualScoring.Rmd is the R markdown file for unblinding, compiling, and c
 
 MachineLearning_MCAM-ERM.Rmd is the R markdown file for compiling feature data and performing machine learning 
 to classify cells with polarized protein. It also includes code for sampling and blinding cells for manual labeling,
-analyzing co-polarization, generating figures, and performing statistics. 
-The "Final-pipeline/Input" folder contains the data necessary to run this code. 
+analyzing co-polarization, generating figures, and performing statistics. It corresponds to Figures 7 and 9.
+
+
+The "Final-pipeline/Input" folder contains the data necessary to run MachineLearning_MCAM-ERM.Rmd. 
 The "Final-pipeline/Output" folder contains the supplemental data which was saved in the last two chunks of the markdown file.
