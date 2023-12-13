@@ -2,7 +2,8 @@
 Accompanies Miller SG, Hoh M, Ebmeier CC, Tay, J, Ahn NG, Cooperative polarization of MCAM/CD146 and ERM family proteins in melanoma. Contains R and MATLAB code for the 3P (protein polarity by percentile) image analysis pipeline, kymograph analysis, and BioID proteomics analysis. Repository for Supplemental Data containing processed BioID proteomics results and imaging data comprised of manual annotation, machine learning classifications, and single-cell feature values from 3P pipeline analyses.
 
 # License and Copyright Information
-Copyright (C) 2023  University of Colorado Boulder, 
+Copyright (C) 2023  University of Colorado Boulder.
+
 Author contributions: Suzannah Miller wrote the code contained in this repository. The concept and code for applying a percentile threshold to identify bright regions within a cell were adapted from code developed by Jian Wei Tay.
 
 This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or any later version.
