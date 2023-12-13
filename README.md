@@ -12,7 +12,8 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 
 The corresponding author is Natalie Ahn, University of Colorado Boulder.
 
-# 3P Pipeline Materials
+# Contents
+## 3P Pipeline Materials
 The 3P pipeline is a method for single-cell analysis of fluorescence microscopy data which identifies cells with polarized proteins and characterizes the localization of polarized proteins. Image segmentation and feature extraction is performed in MATLAB. Additional features are extracted using CellProfiler (Stirling et al., BMC Bioinformatics 22, 433). Features are combined and pre-processed for ML in R. Images are sampled and blinded for manual labeling, and then training of a machine learning model for classifying polarized cells is implemented in R using the caret package (Kuhn, 2019). Additionally, the code is included for analysis of the colocalization features and generation of the figures in Miller _et al_. 
 
 The implementation of the pipeline is described extensively in the Supplemental Materials for Miller _et al_.
@@ -25,14 +26,21 @@ The "Final-pipeline" folder contains all code for implementation of the pipeline
 
 The "siRNA-ERM-Depletion" folder contains the code for analyzing the dataset shown in Figure 5B,D, Figure 6, and Supplemental Figures S7D-S9 in Miller _et al_. 
 
-# Additional Content
+## Additional Content
 The "BioID" folder contains the R Markdown file for performing the analysis of the MCAM BioID data.
 
 The "Kymograph" folder contains the MATLAB scripts for generating kymographs from the live-cell imaging data of WM239a cell lines expressing MCAM-GFP, LifeAct-mTagBFP, and either MSN-mCherry, EZR-mCherry, or RDX-mCherry.
 
 The "Supplemental-Data-Files" is a repository for supplemental data which accompanies Miller et al. It contains Supplemental Table S1 (BioID peptide quantification) and the consolidated feature data, ML classifications, and ML labeling for 3P pipeline analyses. Note that the "3P-Pipeline" folder includes additional input and output data for running the 3P analyses.
 
-# Software Requirements
-Analyses were run using MATLAB 2020a including the Image Processing Toolbox (version 11.1) and the Statistics and Machine Learning Toolbox (version 11.7), CellProfiler 4.2.1 or earlier (https://cellprofiler.org/), and R version R4.1.0 or later. Nikon .nd2 image files were imported into MATLAB using The Open Microscopy Environment Bio-Formats toolbox (https://docs.openmicroscopy.org/bio-formats/)https://docs.openmicroscopy.org/bio-formats/).
+# Required Packages and Software
+## Image Processing
+Custom MATLAB code for extracting feature data from images was run using MATLAB 2020a (academic license), and used functions from the Image Processing Toolbox (version 11.1).
+Nikon .nd2 image files were imported into MATLAB using The Open Microscopy Environment Bio-Formats toolbox ([https://docs.openmicroscopy.org/bio-formats/)https://docs.openmicroscopy.org/bio-formats/](https://docs.openmicroscopy.org/bio-formats/6.4.0/about/index.html)).
+
+Additional features were extracted from images using CellProfiler 4.2.1 or earlier (https://cellprofiler.org/), 
+
+
+and R version R4.1.0 or later. Nikon .nd2 image files were imported into MATLAB using The Open Microscopy Environment [Bio-Formats toolbox] (https://docs.openmicroscopy.org/bio-formats/).
 
 
