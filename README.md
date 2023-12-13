@@ -42,6 +42,12 @@ Additional features were extracted from images using CellProfiler 4.2.1 or earli
 
 ## R Packages (coming soon)
 Analyses used [R](https://www.r-project.org/) version R4.1.0 or later, and were implemented in [RStudio](https://posit.co/products/open-source/rstudio/). 
-readxl
+The following packages were used:
+* caret: [https://github.com/topepo/caret/](https://github.com/topepo/caret/)
+* readxl: [https://cran.r-project.org/package=readxl](https://cran.r-project.org/package=readxl)
+* tidyverse: [https://tidyverse.tidyverse.org](https://tidyverse.tidyverse.org)
+* gridExtra: [https://CRAN.R-project.org/package=gridExtra](https://CRAN.R-project.org/package=gridExtra)
+* corrplot: [https://github.com/taiyun/corrplot](https://github.com/taiyun/corrplot)
+* 
 
-# References (coming soon)
+
