@@ -35,12 +35,13 @@ The "Supplemental-Data-Files" is a repository for supplemental data which accomp
 
 # Required Packages and Software
 ## Image Processing
-Custom MATLAB code for extracting feature data from images was run using MATLAB 2020a (academic license), and used functions from the Image Processing Toolbox (version 11.1).
-Nikon .nd2 image files were imported into MATLAB using The Open Microscopy Environment Bio-Formats toolbox ([https://docs.openmicroscopy.org/bio-formats/)https://docs.openmicroscopy.org/bio-formats/](https://docs.openmicroscopy.org/bio-formats/6.4.0/about/index.html)).
+Custom MATLAB code for extracting feature data from images was run using [MATLAB 2020a](https://www.mathworks.com/) (The MathWorks, Inc., academic license) and used functions from the Image Processing Toolbox (version 11.1).
+Nikon .nd2 image files were imported into MATLAB using The Open Microscopy Environment Bio-Formats toolbox version 6.4.0 (GNU Public License) See [https://docs.openmicroscopy.org/bio-formats/6.4.0/about/index.html](https://docs.openmicroscopy.org/bio-formats/6.4.0/about/index.html) for more information. 
 
-Additional features were extracted from images using CellProfiler 4.2.1 or earlier (https://cellprofiler.org/), 
+Additional features were extracted from images using CellProfiler 4.2.1 or earlier ([https://cellprofiler.org/](https://cellprofiler.org/)). 
 
+## R Packages (coming soon)
+Analyses used [R](https://www.r-project.org/) version R4.1.0 or later, and were implemented in [RStudio](https://posit.co/products/open-source/rstudio/). 
+readxl
 
-and R version R4.1.0 or later. Nikon .nd2 image files were imported into MATLAB using The Open Microscopy Environment [Bio-Formats toolbox] (https://docs.openmicroscopy.org/bio-formats/).
-
-
+# References (coming soon)
