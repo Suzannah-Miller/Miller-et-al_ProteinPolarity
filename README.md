@@ -1,5 +1,5 @@
 # Miller-et-al_ProteinPolarity
-Accompanies Miller SG, Hoh M, Ebmeier CC, Tay, J, Ahn NG, Cooperative polarization of MCAM/CD146 and ERM family proteins in melanoma. Contains R and MATLAB code for the 3P (protein polarity by percentile) image analysis pipeline, kymograph analysis, and BioID proteomics analysis. Repository for Supplemental Data containing processed BioID proteomics results and imaging data comprised of manual annotation, machine learning classifications, and single-cell feature values from 3P pipeline analyses.
+Accompanies Miller SG, Hoh M, Ebmeier CC, Tay, J, Ahn NG, Cooperative polarization of MCAM/CD146 and ERM family proteins in melanoma. Contains R and MATLAB code for the 3P (protein polarity by percentile) image analysis pipeline, kymograph analysis, and BioID proteomics analysis. Repository for Supplemental Data containing processed BioID proteomics results and imaging data comprised of manual annotation, machine learning classifications, and single-cell feature values from 3P pipeline analyses. A detailed description of the software and analyses are provided in the Supplemental Materials and Methods file.
 
 # License and Copyright Information
 The code in this repository is copyright (C) 2023  University of Colorado Boulder.
@@ -40,7 +40,7 @@ Nikon .nd2 image files were imported into MATLAB using The Open Microscopy Envir
 
 Additional features were extracted from images using CellProfiler 4.2.1 or earlier ([https://cellprofiler.org/](https://cellprofiler.org/)). 
 
-## R Packages (coming soon)
+## R Packages
 Analyses used [R](https://www.r-project.org/) version R4.1.0 or later, and were implemented in [RStudio](https://posit.co/products/open-source/rstudio/). 
 The following packages were used (not including dependencies):
 * car: [https://CRAN.R-project.org/package=car](v)
@@ -62,5 +62,6 @@ The following packages were used (not including dependencies):
 * svglite: [https://CRAN.R-project.org/package=svglite](https://CRAN.R-project.org/package=svglite)
 * tidyverse: [https://tidyverse.tidyverse.org](https://tidyverse.tidyverse.org)
 
-
+# Citations and Acknowledgments
+In addition to the packages cited above, we wish to acknowledge the following. Polarity measurements similar to those described by Moreau _et al_. ([_Dev Cell_ 49: 171-188.e5](https://pubmed.ncbi.nlm.nih.gov/30982662/)) were included in the 3P Pipeline. Machine learning was modeled after previously described workflows (Pierobon, 2018; Kuhn, 2019). The author is grateful to the machine learning community for the numerous tutorials and examples which were consulted to choose function parameters, including 
 
