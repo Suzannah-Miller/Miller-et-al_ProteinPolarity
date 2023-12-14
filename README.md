@@ -42,12 +42,25 @@ Additional features were extracted from images using CellProfiler 4.2.1 or earli
 
 ## R Packages (coming soon)
 Analyses used [R](https://www.r-project.org/) version R4.1.0 or later, and were implemented in [RStudio](https://posit.co/products/open-source/rstudio/). 
-The following packages were used:
+The following packages were used (not including dependencies):
+* car: [https://CRAN.R-project.org/package=car](v)
 * caret: [https://github.com/topepo/caret/](https://github.com/topepo/caret/)
-* readxl: [https://cran.r-project.org/package=readxl](https://cran.r-project.org/package=readxl)
-* tidyverse: [https://tidyverse.tidyverse.org](https://tidyverse.tidyverse.org)
-* gridExtra: [https://CRAN.R-project.org/package=gridExtra](https://CRAN.R-project.org/package=gridExtra)
+* caretEnsemble: [https://CRAN.R-project.org/package=caretEnsemble](https://CRAN.R-project.org/package=caretEnsemble)
 * corrplot: [https://github.com/taiyun/corrplot](https://github.com/taiyun/corrplot)
-* 
+* eulerr: [https://CRAN.R-project.org/package=eulerr](https://CRAN.R-project.org/package=eulerr)
+* extraTrees: [https://github.com/jaak-s/extraTrees](https://github.com/jaak-s/extraTrees), [https://cran.r-project.org/src/contrib/Archive/extraTrees/](https://cran.r-project.org/src/contrib/Archive/extraTrees/)
+* FSA: [https://CRAN.R-project.org/package=FSA}(https://CRAN.R-project.org/package=FSA)
+* gbm: [https://CRAN.R-project.org/package=gbm](https://CRAN.R-project.org/package=gbm)
+* ggbeeswarm: [https://CRAN.R-project.org/package=ggbeeswarm](https://CRAN.R-project.org/package=ggbeeswarm)
+* gridExtra: [https://CRAN.R-project.org/package=gridExtra](https://CRAN.R-project.org/package=gridExtra)
+* outliers: [https://CRAN.R-project.org/package=outliers](https://CRAN.R-project.org/package=outliers)
+* RColorBrewer: [https://CRAN.R-project.org/package=RColorBrewer](https://CRAN.R-project.org/package=RColorBrewer)
+* Rdimtools: [https://www.kisungyou.com/Rdimtools/](https://www.kisungyou.com/Rdimtools/)
+* readxl: [https://cran.r-project.org/package=readxl](https://cran.r-project.org/package=readxl)
+* rgl: [https://CRAN.R-project.org/package=rgl](https://CRAN.R-project.org/package=rgl)
+* stats: R Core Team
+* svglite: [https://CRAN.R-project.org/package=svglite](https://CRAN.R-project.org/package=svglite)
+* tidyverse: [https://tidyverse.tidyverse.org](https://tidyverse.tidyverse.org)
+
 
 
