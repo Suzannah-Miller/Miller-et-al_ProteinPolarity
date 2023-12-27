@@ -1,3 +1,13 @@
+The code in this repository is copyright (C) 2023 University of Colorado Boulder.
+
+Author contributions: Suzannah Miller wrote the code contained in this repository. The concept and code for applying a percentile threshold to identify bright regions within a cell were adapted from code developed by Jian Wei Tay.
+
+This program is free software; you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation; either version 2 of the License, or any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details. A copy of the license is provided in the LICENSE file.
+
+The corresponding author is Natalie Ahn, University of Colorado Boulder.
+
                     GNU GENERAL PUBLIC LICENSE
                        Version 2, June 1991
 
